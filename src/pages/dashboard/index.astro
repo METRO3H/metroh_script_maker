@@ -1,5 +1,6 @@
 ---
-import Layout from "@layouts/Layout.astro";
+import Card from "@components/Card.astro";
+import Layout from "@layouts/MainLayout.astro";
 import { supabase } from "@lib/supabase";
 
 const accessToken = Astro.cookies.get("sb-access-token");
@@ -37,9 +38,11 @@ try {
 const email = session.data.user?.email;
 ---
 <Layout title="dashboard">
-  <h1>Welcome {email}</h1>
-  <p>We are happy to see you here</p>
-  <form action="/api/auth/signout">
-    <button type="submit">Sign out</button>
-  </form>
+  <div class="w-full h-full flex justify-center items-center">
+
+    <Card class="flex flex-col gap-4 w-9/12 h-9/12">
+      <h1 class="text-2xl font-bold">Dashboard</h1>
+    </Card>
+  </div>
+
 </Layout>
