@@ -1,5 +1,6 @@
 ---
 import Card from "@components/Card.astro";
+import WritingArea from "@components/WritingArea/WritingArea.svelte";
 import Layout from "@layouts/MainLayout.astro";
 import { supabase } from "@lib/supabase";
 
@@ -40,8 +41,11 @@ const email = session.data.user?.email;
 <Layout title="dashboard">
   <div class="w-full h-full flex justify-center items-center">
 
-    <Card class="flex flex-col gap-4 w-9/12 h-9/12">
-      <h1 class="text-2xl font-bold">Dashboard</h1>
+    <Card class="flex flex-col gap-4 w-9/12 h-9/12 overflow-auto">
+      <h1 class="text-2xl font-bold">Writing Area</h1>
+
+      <WritingArea client:load/>
+
     </Card>
   </div>
 
