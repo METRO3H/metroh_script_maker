@@ -1,12 +1,15 @@
 <script>
+   import { tick } from "svelte";
    let full_script = $state([]);
    let current_input = $state("");
+   let script_count = $state(0);
 
    function save_input() {
       const input = current_input.trim();
       if (input.length === 0) return;
 
       full_script = [...full_script, input];
+      script_count = full_script.length;
       current_input = "";
    }
 
@@ -26,6 +29,16 @@
    function update_script(new_script, i) {
       full_script = full_script.map((s, index) => (index === i ? new_script : s));
    }
+   // Scroll to bottom every time a script is added
+   $effect(() => {
+      script_count;
+      tick().then(() => {
+         window.scrollTo({
+            top: document.body.scrollHeight,
+            behavior: "smooth",
+         });
+      });
+   });
 </script>
 
 {#if full_script.length > 0}
