@@ -56,7 +56,7 @@
 <textarea
    name="script"
    id="script"
-   class="w-full h-full p-4 rounded-xl bg-white text-black font-mono text-sm"
+   class="w-full h-full p-4 rounded-xl bg-white text-black font-mono text-sm flex-1"
    value={current_input}
    oninput={(e) => (current_input = e.currentTarget.value)}
    onkeydown={handle_keydown}
