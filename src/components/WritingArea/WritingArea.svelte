@@ -43,17 +43,17 @@
 
 {#if full_script.length > 0}
    {#each full_script as script, index}
-      <textarea
+      <input
          name={`script${index}`}
          id={`script${index}`}
-         class="w-full p-4 rounded-xl bg-white text-black font-mono text-sm"
+         class="w-full p-4 rounded-xl bg-white text-black font-mono text-sm script-added"
          value={script}
          onblur={(e) => update_script(e.currentTarget.value, index)}
-      ></textarea>
+      />
    {/each}
 {/if}
 
-<textarea
+<input
    name="script"
    id="script"
    class="w-full h-full p-4 rounded-xl bg-white text-black font-mono text-sm flex-1"
@@ -61,4 +61,15 @@
    oninput={(e) => (current_input = e.currentTarget.value)}
    onkeydown={handle_keydown}
    placeholder="Escribe aquí... (RightShift + Enter para guardar)"
-></textarea>
+   
+/>
+
+<style>
+   input {
+      resize: none;
+      overflow: hidden;
+   }
+   .script-added {
+      outline: 2px solid #1e3a5f;
+   }
+</style>

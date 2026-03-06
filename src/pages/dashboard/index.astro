@@ -8,46 +8,43 @@ const accessToken = Astro.cookies.get("sb-access-token");
 const refreshToken = Astro.cookies.get("sb-refresh-token");
 
 if (!accessToken || !refreshToken) {
-  return Astro.redirect("/auth/sign");
+   return Astro.redirect("/auth/sign");
 }
 
 let session;
 try {
-  session = await supabase.auth.setSession({
-    refresh_token: refreshToken.value,
-    access_token: accessToken.value,
-  });
-  if (session.error) {
-    Astro.cookies.delete("sb-access-token", {
-      path: "/",
-    });
-    Astro.cookies.delete("sb-refresh-token", {
-      path: "/",
-    });
-    return Astro.redirect("auth/sign");
-  }
+   session = await supabase.auth.setSession({
+      refresh_token: refreshToken.value,
+      access_token: accessToken.value,
+   });
+   if (session.error) {
+      Astro.cookies.delete("sb-access-token", {
+         path: "/",
+      });
+      Astro.cookies.delete("sb-refresh-token", {
+         path: "/",
+      });
+      return Astro.redirect("auth/sign");
+   }
 } catch (error) {
-  Astro.cookies.delete("sb-access-token", {
-    path: "/",
-  });
-  Astro.cookies.delete("sb-refresh-token", {
-    path: "/",
-  });
-  return Astro.redirect("/auth/sign");
+   Astro.cookies.delete("sb-access-token", {
+      path: "/",
+   });
+   Astro.cookies.delete("sb-refresh-token", {
+      path: "/",
+   });
+   return Astro.redirect("/auth/sign");
 }
 
 const email = session.data.user?.email;
-
 ---
+
 <Layout title="dashboard">
-  <div class="w-full flex justify-center items-start pt-6">
+   <div class="w-full flex justify-center items-start pt-6">
+      <Card class="flex flex-col gap-1 w-9/12 h-9/12 overflow-auto min-h-[85vh]">
+         <h1 class="text-2xl font-bold">Writing Area</h1>
 
-    <Card class="flex flex-col gap-1 w-9/12 h-9/12 overflow-auto min-h-[75vh]">
-      <h1 class="text-2xl font-bold">Writing Area</h1>
-
-      <WritingArea client:load/>
-
-    </Card>
-  </div>
-
+         <WritingArea client:load />
+      </Card>
+   </div>
 </Layout>
