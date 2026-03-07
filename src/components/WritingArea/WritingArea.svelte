@@ -1,4 +1,5 @@
 <script>
+// WritingArea.svelte
    import { tick } from "svelte";
    let full_script = $state([]);
    let current_input = $state("");
