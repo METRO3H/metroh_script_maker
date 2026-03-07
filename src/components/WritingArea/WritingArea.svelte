@@ -43,20 +43,24 @@
 
 {#if full_script.length > 0}
    {#each full_script as script, index}
+   <div class="flex gap-2">
+   <span class="flex justify-center items-center"> script {index + 1} </span>
+      
       <input
          name={`script${index}`}
          id={`script${index}`}
-         class="w-full p-4 rounded-xl bg-white text-black font-mono text-sm script-added"
+         class="p-4 rounded-xl bg-white text-black font-mono text-sm script-added flex-1"
          value={script}
          onblur={(e) => update_script(e.currentTarget.value, index)}
       />
+   </div>
    {/each}
 {/if}
 
 <input
    name="script"
    id="script"
-   class="w-full h-full p-4 rounded-xl bg-white text-black font-mono text-sm flex-1"
+   class="w-full h-full p-4 rounded-xl bg-white text-black font-mono text-sm current-input mt-auto"
    value={current_input}
    oninput={(e) => (current_input = e.currentTarget.value)}
    onkeydown={handle_keydown}
@@ -70,6 +74,13 @@
       overflow: hidden;
    }
    .script-added {
+      outline: 1px solid #1e3a5f;
+   }
+   .current-input {
+      outline: 1px solid #1e3a5f;
+      background-color: #f0f0f0;
+   }
+   .current-input:focus {
       outline: 2px solid #1e3a5f;
    }
 </style>
