@@ -1,10 +1,9 @@
 ---
 // WriteScript page
 import Card from "@components/Card.astro";
-import CharacterMenu from "@components/WritingArea/CharacterMenu.svelte";
-import WritingArea from "@components/WritingArea/WritingArea.svelte";
+import ScriptEditor from "@components/WritingArea/ScriptEditor.svelte";
 import Layout from "@layouts/MainLayout.astro";
-import { supabase } from "@lib/supabase";
+import { supabase } from "@supabase/supabase";
 
 const accessToken = Astro.cookies.get("sb-access-token");
 const refreshToken = Astro.cookies.get("sb-refresh-token");
@@ -44,8 +43,7 @@ const email = session.data.user?.email;
 <Layout title="dashboard">
    <div class="w-full flex justify-center items-start pt-6">
       <Card class="flex flex-col gap-4 w-9/12 h-9/12 overflow-auto min-h-[85vh]">
-         <CharacterMenu client:load />
-         <WritingArea client:load />
+         <ScriptEditor client:load />
       </Card>
    </div>
 </Layout>
