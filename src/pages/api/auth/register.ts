@@ -1,7 +1,7 @@
 // With `output: 'static'` configured:
 // export const prerender = false;
 import type { APIRoute } from "astro";
-import { supabase } from "@lib/supabase";
+import { supabase } from "@supabase/supabase";
 
 export const POST: APIRoute = async ({ request, redirect }) => {
   const formData = await request.formData();
@@ -18,6 +18,7 @@ export const POST: APIRoute = async ({ request, redirect }) => {
   });
 
   if (error) {
+    console.log(error)
     return new Response(error.message, { status: 500 });
   }
 

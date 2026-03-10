@@ -7,18 +7,56 @@ const accessToken = cookies.get("sb-access-token");
 const refreshToken = cookies.get("sb-refresh-token");
 
 if (accessToken && refreshToken) {
-  return redirect("../dashboard");
+   return redirect("../dashboard");
 }
 ---
 
 <Layout title="Sign in">
-  <h1>Sign in</h1>
-  <p>New here? <a href="/register">Create an account</a></p>
-  <form action="/api/auth/sign" method="post">
-    <label for="email">Email</label>
-    <input type="email" name="email" id="email" />
-    <label for="password">Password</label>
-    <input type="password" name="password" id="password" />
-    <button type="submit">Login</button>
-  </form>
+   <div class="min-h-screen bg-stone-50 flex items-center justify-center px-4">
+      <div class="w-full max-w-xs">
+         <p class="text-xs tracking-[0.2em] uppercase text-stone-400 mb-16">Metroh Script Maker</p>
+
+         <h1 class="text-3xl font-light text-stone-800 mb-1">Sign in</h1>
+         <p class="text-sm text-stone-400 mb-8">
+            New here?
+            <a
+               href="/auth/register"
+               class="text-stone-600 underline underline-offset-2 hover:text-stone-900 transition-colors"
+            >
+               Create an account
+            </a>
+         </p>
+
+         <form action="/api/auth/sign" method="post" class="space-y-4">
+            <div class="flex flex-col gap-1">
+               <label for="email" class="text-xs text-stone-400 tracking-wide"> Email </label>
+               <input
+                  type="email"
+                  name="email"
+                  id="email"
+                  placeholder="you@example.com"
+                  class="bg-white border border-stone-200 rounded px-3 py-2.5 text-sm text-stone-800 placeholder-stone-300 outline-none focus:border-stone-400 transition"
+               />
+            </div>
+
+            <div class="flex flex-col gap-1">
+               <label for="password" class="text-xs text-stone-400 tracking-wide"> Password </label>
+               <input
+                  type="password"
+                  name="password"
+                  id="password"
+                  placeholder="••••••••"
+                  class="bg-white border border-stone-200 rounded px-3 py-2.5 text-sm text-stone-800 placeholder-stone-300 outline-none focus:border-stone-400 transition"
+               />
+            </div>
+
+            <button
+               type="submit"
+               class="w-full mt-1 bg-stone-800 hover:bg-stone-900 active:scale-[0.99] text-white text-xs tracking-widest uppercase py-2.5 rounded transition-all duration-150 cursor-pointer"
+            >
+               Sign in
+            </button>
+         </form>
+      </div>
+   </div>
 </Layout>
