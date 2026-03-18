@@ -1,5 +1,5 @@
 {
-  "name": "",
+  "name": "metroh_script_maker",
   "type": "module",
   "version": "0.0.1",
   "scripts": {
@@ -9,10 +9,11 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/svelte": "^7.2.5",
+    "@astrojs/svelte": "^8.0.1",
+    "@astrojs/vercel": "^10.0.1",
     "@supabase/supabase-js": "^2.98.0",
     "@tailwindcss/vite": "^4.2.1",
-    "astro": "^5.17.1",
+    "astro": "^6.0.5",
     "svelte": "^5.53.5",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3"
