@@ -5,18 +5,65 @@ const { title } = Astro.props;
 ---
 
 <!doctype html>
-<html lang="en">
-   <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width" />
-      <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-      <link rel="icon" href="/favicon.ico" />
-      <meta name="generator" content={Astro.generator} />
-      <title>{title}</title>
-   </head>
-   <body class="min-h-screen flex flex-col">
-      <main class="flex-1">
-         <slot />
-      </main>
-   </body>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title} — Metroh</title>
+
+    <!--
+      Script inline crítico: aplica el tema ANTES de que el browser pinte.
+      Sin esto hay un flash blanco/negro al cargar en el tema no-default.
+    -->
+    <script is:inline>
+      (function () {
+        const stored = localStorage.getItem("metroh-theme");
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const theme = stored ?? (prefersDark ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
+  </head>
+
+  <body>
+    <slot />
+
+    <!-- Script de toggle: escucha clicks en cualquier .theme-toggle de la página -->
+    <script>
+      function apply_theme(theme) {
+        document.documentElement.setAttribute("data-theme", theme);
+        localStorage.setItem("metroh-theme", theme);
+
+        // Actualizar ícono en todos los toggles de la página
+        document.querySelectorAll(".theme-toggle").forEach((btn) => {
+          const icon_sun  = btn.querySelector(".icon-sun");
+          const icon_moon = btn.querySelector(".icon-moon");
+          if (icon_sun)  icon_sun.style.display  = theme === "dark"  ? "block" : "none";
+          if (icon_moon) icon_moon.style.display = theme === "light" ? "block" : "none";
+        });
+      }
+
+      // Inicializar íconos en el estado correcto
+      const current = document.documentElement.getAttribute("data-theme") ?? "light";
+      apply_theme(current);
+
+      // Escuchar clicks en toggles
+      document.addEventListener("click", (e) => {
+        const toggle = e.target.closest(".theme-toggle");
+        if (!toggle) return;
+        const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        apply_theme(next);
+      });
+
+      // Sincronizar si el usuario cambia la preferencia del sistema
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+        if (!localStorage.getItem("metroh-theme")) {
+          apply_theme(e.matches ? "dark" : "light");
+        }
+      });
+    </script>
+  </body>
 </html>

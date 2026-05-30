@@ -10,12 +10,13 @@
   },
   "dependencies": {
     "@astrojs/svelte": "^8.0.1",
-    "@astrojs/vercel": "^10.0.1",
+    "@astrojs/vercel": "^10.0.7",
     "@supabase/supabase-js": "^2.98.0",
     "@tailwindcss/vite": "^4.2.1",
     "astro": "^6.0.5",
     "svelte": "^5.53.5",
     "tailwindcss": "^4.2.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "zod": "^4.4.3"
   }
 }

@@ -1,0 +1,222 @@
+---
+// dashboard/scripts.astro
+import Layout from "@layouts/MainLayout.astro";
+import { supabase } from "@supabase/supabase";
+import { require_auth, clear_auth } from "@utils/auth";
+
+const auth = await require_auth(Astro.cookies).catch(() => null);
+if (!auth) {
+  clear_auth(Astro.cookies);
+  return Astro.redirect("/auth/sign");
+}
+
+const { user } = auth;
+const { data: scripts } = await supabase.rpc("get_user_scripts");
+const script_list = scripts ?? [];
+
+function format_date(ts: string) {
+  return new Date(ts).toLocaleDateString("es-CL", {
+    day: "2-digit", month: "short", year: "numeric",
+  });
+}
+---
+
+<Layout title="Mis scripts">
+  <div class="scripts-page">
+
+    <header class="app-header">
+      <!-- ✅ Parte A — wordmark linkeado -->
+      <a href="/dashboard/scripts" class="app-wordmark">Metroh</a>
+
+      <div class="app-header-right">
+        <span class="app-user-email">{user.email}</span>
+
+        <button class="theme-toggle" aria-label="Cambiar tema">
+          <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="15" height="15"
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" style="display:none">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+          </svg>
+          <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="15" height="15"
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+          </svg>
+        </button>
+
+        <a href="/api/auth/signout" class="btn btn-danger-ghost btn-sm">
+          Cerrar sesión
+        </a>
+      </div>
+    </header>
+
+    <main class="scripts-main">
+      <div class="section-header">
+        <div>
+          <h1 class="section-title">Mis scripts</h1>
+          <p class="section-sub">
+            {script_list.length === 0
+              ? "Todavía no has guardado ninguno"
+              : `${script_list.length} script${script_list.length !== 1 ? "s" : ""} guardado${script_list.length !== 1 ? "s" : ""}`
+            }
+          </p>
+        </div>
+        <a href="/dashboard" class="btn btn-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14"/><path d="M12 5v14"/>
+          </svg>
+          Nuevo script
+        </a>
+      </div>
+
+      {script_list.length === 0 && (
+        <div class="empty-state">
+          <div class="empty-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="12" y1="18" x2="12" y2="12"/>
+              <line x1="9" y1="15" x2="15" y2="15"/>
+            </svg>
+          </div>
+          <p class="empty-title">No tienes scripts guardados</p>
+          <p class="empty-sub">Crea uno nuevo y aparecerá aquí</p>
+          <a href="/dashboard" class="btn btn-primary" style="margin-top: 8px;">
+            Crear el primero
+          </a>
+        </div>
+      )}
+
+      {script_list.length > 0 && (
+        <div class="scripts-grid">
+          {script_list.map((s: any) => (
+            <a href={`/dashboard?id=${s.id}`} class="script-card">
+              <h2 class="script-name">{s.name}</h2>
+              <div class="script-meta">
+                <span class="meta-item">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                  </svg>
+                  {s.character_count} personaje{s.character_count !== 1 ? "s" : ""}
+                </span>
+                <span class="meta-item">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="3" y1="6" x2="21" y2="6"/>
+                    <line x1="3" y1="12" x2="21" y2="12"/>
+                    <line x1="3" y1="18" x2="15" y2="18"/>
+                  </svg>
+                  {s.line_count} línea{s.line_count !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <div class="script-footer">
+                <span class="script-date">{format_date(s.updated_at)}</span>
+                <span class="script-cta">Editar →</span>
+              </div>
+            </a>
+          ))}
+        </div>
+      )}
+    </main>
+  </div>
+</Layout>
+
+<style>
+  .scripts-page {
+    min-height: 100vh;
+    background: var(--bg-subtle);
+    display: flex;
+    flex-direction: column;
+  }
+  .scripts-main {
+    flex: 1;
+    max-width: 900px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 36px 24px 80px;
+  }
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 28px;
+    gap: 16px;
+  }
+  .section-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+  }
+  .section-sub {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 24px;
+    gap: 8px;
+    text-align: center;
+  }
+  .empty-icon { color: var(--text-muted); margin-bottom: 8px; opacity: 0.5; }
+  .empty-title { font-size: 15px; font-weight: 500; color: var(--text-secondary); }
+  .empty-sub { font-size: 13px; color: var(--text-muted); }
+  .scripts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .script-name {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color var(--transition);
+  }
+  .script-card:hover .script-name { color: var(--accent-text); }
+  .script-meta { display: flex; gap: 14px; margin-bottom: 16px; }
+  .meta-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .script-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .script-date { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+  .script-cta {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent-text);
+    opacity: 0;
+    transition: opacity var(--transition);
+  }
+  .script-card:hover .script-cta { opacity: 1; }
+  .btn-sm { font-size: 10px; padding: 5px 12px; }
+</style>
