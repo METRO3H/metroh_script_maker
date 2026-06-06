@@ -1,37 +1,67 @@
 -- ─────────────────────────────────────────────
+-- DROP todo para empezar limpio
+-- ─────────────────────────────────────────────
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP TRIGGER IF EXISTS set_updated_at_scripts ON scripts;
+DROP TRIGGER IF EXISTS set_updated_at_characters ON characters;
+DROP TRIGGER IF EXISTS set_updated_at_script_lines ON script_lines;
+
+DROP FUNCTION IF EXISTS handle_new_user();
+DROP FUNCTION IF EXISTS update_updated_at();
+DROP FUNCTION IF EXISTS upsert_script(UUID, TEXT, TEXT[], JSONB);
+DROP FUNCTION IF EXISTS get_user_scripts();
+DROP FUNCTION IF EXISTS get_script_detail(UUID);
+DROP FUNCTION IF EXISTS delete_character(UUID, BOOLEAN);
+DROP FUNCTION IF EXISTS delete_script(UUID);
+
+DROP TABLE IF EXISTS script_lines;
+DROP TABLE IF EXISTS characters;
+DROP TABLE IF EXISTS scripts;
+DROP TABLE IF EXISTS profiles;
+
+
+-- ─────────────────────────────────────────────
 -- Tablas
 -- ─────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS profiles (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    email TEXT UNIQUE,
+CREATE TABLE profiles (
+    id         UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    email      TEXT UNIQUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS scripts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
-    name TEXT NOT NULL,
+CREATE TABLE scripts (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+    name       TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS characters (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    script_id UUID REFERENCES scripts(id) ON DELETE CASCADE NOT NULL,
-    name TEXT NOT NULL,
+CREATE TABLE characters (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    script_id  UUID REFERENCES scripts(id) ON DELETE CASCADE NOT NULL,
+    name       TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS script_lines (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    script_id UUID REFERENCES scripts(id) ON DELETE CASCADE NOT NULL,
+-- line_type: 'dialogue' | 'thought' | 'narration' | 'context' | 'scene'
+-- character_id: NULL para context y scene
+-- content:      NULL para scene
+-- scene_number: solo para line_type = 'scene'
+CREATE TABLE script_lines (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    script_id    UUID REFERENCES scripts(id) ON DELETE CASCADE NOT NULL,
     character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
-    line_number INTEGER NOT NULL,
-    content TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    line_number  INTEGER NOT NULL,
+    line_type    TEXT NOT NULL DEFAULT 'dialogue'
+                 CHECK (line_type IN ('dialogue', 'thought', 'narration', 'context', 'scene')),
+    content      TEXT,
+    scene_number INTEGER,
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 
@@ -79,13 +109,13 @@ CREATE POLICY "Usuario ve líneas de sus scripts"
 
 
 -- ─────────────────────────────────────────────
--- ✅ Capa 4 — upsert_script
---    Crea un script nuevo (p_script_id = NULL)
---    o actualiza uno existente del mismo usuario
+-- upsert_script
+-- Guarda todas las líneas: dialogue, thought,
+-- narration, context y scene
 -- ─────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION upsert_script(
-  p_script_id   UUID,     -- NULL para script nuevo
+  p_script_id   UUID,
   p_script_name TEXT,
   p_characters  TEXT[],
   p_lines       JSONB
@@ -101,6 +131,8 @@ DECLARE
   v_line          JSONB;
   v_character     TEXT;
   v_user_id       UUID;
+  v_line_type     TEXT;
+  v_character_name TEXT;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
@@ -108,12 +140,10 @@ BEGIN
   END IF;
 
   IF p_script_id IS NULL THEN
-    -- Nuevo script
     INSERT INTO scripts (user_id, name)
     VALUES (v_user_id, p_script_name)
     RETURNING id INTO v_script_id;
   ELSE
-    -- Verificar que el script pertenece al usuario
     SELECT id INTO v_script_id
     FROM scripts
     WHERE id = p_script_id AND user_id = v_user_id;
@@ -122,14 +152,11 @@ BEGIN
       RAISE EXCEPTION 'Script no encontrado';
     END IF;
 
-    -- Actualizar nombre y timestamp
-    UPDATE scripts SET name = p_script_name WHERE id = v_script_id;
-
-    -- Borrar personajes anteriores (ON DELETE CASCADE borra las líneas también)
+    UPDATE scripts SET name = p_script_name, updated_at = NOW() WHERE id = v_script_id;
     DELETE FROM characters WHERE script_id = v_script_id;
   END IF;
 
-  -- Insertar personajes
+  -- Insertar personajes y construir mapa nombre → id
   FOREACH v_character IN ARRAY p_characters LOOP
     INSERT INTO characters (script_id, name)
     VALUES (v_script_id, v_character)
@@ -138,14 +165,33 @@ BEGIN
     v_character_map := v_character_map || jsonb_build_object(v_character, v_character_id);
   END LOOP;
 
-  -- Insertar líneas
+  -- Insertar todas las líneas
   FOR v_line IN SELECT * FROM jsonb_array_elements(p_lines) LOOP
-    INSERT INTO script_lines (script_id, character_id, line_number, content)
-    VALUES (
+    v_line_type      := v_line->>'line_type';
+    v_character_name := v_line->>'character_name';
+
+    INSERT INTO script_lines (
+      script_id,
+      character_id,
+      line_number,
+      line_type,
+      content,
+      scene_number
+    ) VALUES (
       v_script_id,
-      (v_character_map ->> (v_line->>'character_name'))::UUID,
+      CASE
+        WHEN v_character_name IS NOT NULL
+        THEN (v_character_map ->> v_character_name)::UUID
+        ELSE NULL
+      END,
       (v_line->>'line_number')::INTEGER,
-      v_line->>'content'
+      v_line_type,
+      v_line->>'content',
+      CASE
+        WHEN v_line_type = 'scene'
+        THEN (v_line->>'scene_number')::INTEGER
+        ELSE NULL
+      END
     );
   END LOOP;
 
@@ -155,8 +201,7 @@ $$;
 
 
 -- ─────────────────────────────────────────────
--- ✅ Capa 4 — get_user_scripts
---    Lista los scripts del usuario con conteos
+-- get_user_scripts
 -- ─────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION get_user_scripts()
@@ -176,8 +221,11 @@ BEGIN
   SELECT
     s.id,
     s.name,
-    COUNT(DISTINCT c.id)  AS character_count,
-    COUNT(DISTINCT sl.id) AS line_count,
+    COUNT(DISTINCT c.id) AS character_count,
+    -- Solo contamos líneas de diálogo reales, no escenas ni contextos
+    COUNT(DISTINCT sl.id) FILTER (
+      WHERE sl.line_type IN ('dialogue', 'thought', 'narration')
+    ) AS line_count,
     s.created_at,
     s.updated_at
   FROM scripts s
@@ -191,9 +239,9 @@ $$;
 
 
 -- ─────────────────────────────────────────────
--- ✅ Capa 4 — get_script_detail
---    Devuelve un script completo como JSONB
---    para cargar en el editor
+-- get_script_detail
+-- Devuelve el script completo para restaurar
+-- el estado exacto en el editor
 -- ─────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION get_script_detail(p_script_id UUID)
@@ -217,13 +265,15 @@ BEGIN
     'lines', (
       SELECT jsonb_agg(
         jsonb_build_object(
+          'line_type',     sl.line_type,
           'character_name', c.name,
-          'text', sl.content
+          'content',       sl.content,
+          'scene_number',  sl.scene_number
         )
         ORDER BY sl.line_number
       )
       FROM script_lines sl
-      JOIN characters c ON c.id = sl.character_id
+      LEFT JOIN characters c ON c.id = sl.character_id
       WHERE sl.script_id = s.id
     )
   )
@@ -235,6 +285,73 @@ BEGIN
 END;
 $$;
 
+
+-- ─────────────────────────────────────────────
+-- delete_character
+-- ─────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION delete_character(
+  p_character_id UUID,
+  p_keep_lines   BOOLEAN
+)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_script_id    UUID;
+  v_unknown_id   UUID;
+  v_unknown_n    INT;
+  v_unknown_name TEXT;
+BEGIN
+  SELECT script_id INTO v_script_id
+  FROM characters
+  WHERE id = p_character_id
+    AND script_id IN (SELECT id FROM scripts WHERE user_id = auth.uid());
+
+  IF v_script_id IS NULL THEN
+    RAISE EXCEPTION 'Personaje no encontrado';
+  END IF;
+
+  IF p_keep_lines THEN
+    SELECT COUNT(*) + 1 INTO v_unknown_n
+    FROM characters
+    WHERE script_id = v_script_id
+      AND name LIKE 'Desconocido %';
+
+    v_unknown_name := 'Desconocido ' || v_unknown_n;
+
+    INSERT INTO characters (script_id, name)
+    VALUES (v_script_id, v_unknown_name)
+    RETURNING id INTO v_unknown_id;
+
+    UPDATE script_lines
+    SET character_id = v_unknown_id
+    WHERE character_id = p_character_id;
+  END IF;
+
+  DELETE FROM characters WHERE id = p_character_id;
+END;
+$$;
+
+-- ─────────────────────────────────────────────
+-- delete_script
+-- ─────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION delete_script(p_script_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  DELETE FROM scripts
+  WHERE id = p_script_id AND user_id = auth.uid();
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Script no encontrado';
+  END IF;
+END;
+$$;
 
 -- ─────────────────────────────────────────────
 -- Triggers: updated_at automático
@@ -261,58 +378,9 @@ CREATE OR REPLACE TRIGGER set_updated_at_script_lines
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 
-
+  -- ─────────────────────────────────────────────
+-- Sincronizar usuarios existentes en auth.users
 -- ─────────────────────────────────────────────
--- Parte B — delete_character
--- Elimina un personaje. Si keep_lines = true,
--- reasigna sus líneas a un personaje "Desconocido N".
--- Si keep_lines = false, borra sus líneas también.
--- ─────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION delete_character(
-  p_character_id UUID,
-  p_keep_lines   BOOLEAN
-)
-RETURNS VOID
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  v_script_id    UUID;
-  v_unknown_id   UUID;
-  v_unknown_n    INT;
-  v_unknown_name TEXT;
-BEGIN
-  -- Obtener el script_id y verificar que pertenece al usuario
-  SELECT script_id INTO v_script_id
-  FROM characters
-  WHERE id = p_character_id
-    AND script_id IN (SELECT id FROM scripts WHERE user_id = auth.uid());
-
-  IF v_script_id IS NULL THEN
-    RAISE EXCEPTION 'Personaje no encontrado';
-  END IF;
-
-  IF p_keep_lines THEN
-    -- Calcular el siguiente número de Desconocido
-    SELECT COUNT(*) + 1 INTO v_unknown_n
-    FROM characters
-    WHERE script_id = v_script_id
-      AND name LIKE 'Desconocido %';
-
-    v_unknown_name := 'Desconocido ' || v_unknown_n;
-
-    -- Crear el personaje Desconocido
-    INSERT INTO characters (script_id, name)
-    VALUES (v_script_id, v_unknown_name)
-    RETURNING id INTO v_unknown_id;
-
-    -- Reasignar líneas
-    UPDATE script_lines
-    SET character_id = v_unknown_id
-    WHERE character_id = p_character_id;
-  END IF;
-
-  -- Eliminar el personaje (ON DELETE SET NULL limpia las FKs restantes)
-  DELETE FROM characters WHERE id = p_character_id;
-END;
-$$;
+INSERT INTO profiles (id, email)
+SELECT id, email FROM auth.users
+ON CONFLICT (id) DO NOTHING;
