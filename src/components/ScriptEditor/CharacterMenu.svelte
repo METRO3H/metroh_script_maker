@@ -695,13 +695,6 @@
       white-space: nowrap;
    }
 
-   dialog {
-      margin: auto;
-      position: fixed;
-      inset: 0;
-      width: calc(100% - 48px);
-      max-width: 380px;
-   }
 
    .dialog-title {
       font-size: 16px;

@@ -49,10 +49,97 @@
    let save_status = $state(null);
    let toast_timeout = null;
 
-
    let delete_dialog = $state(null);
    let pending_delete_index = $state(null);
    let lines_area = $state(null);
+
+   // ── Modo selección por lote ──
+   let select_mode = $state(false);
+   let selected = $state(new Set());
+   let long_press_timer = null;
+
+   // ── Rectángulo de selección ──
+   let rect_active = $state(false);
+   let rect_pending = $state(false); // mousedown ocurrió, esperando movimiento mínimo
+   let rect_start_x = $state(0);
+   let rect_start_y = $state(0);
+   let rect_cur_x = $state(0);
+   let rect_cur_y = $state(0);
+   const RECT_THRESHOLD = 6; // px mínimos antes de activar el rectángulo
+
+   let rect_style = $derived(() => {
+      const x = Math.min(rect_start_x, rect_cur_x);
+      const y = Math.min(rect_start_y, rect_cur_y);
+      const w = Math.abs(rect_cur_x - rect_start_x);
+      const h = Math.abs(rect_cur_y - rect_start_y);
+      return `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+   });
+
+   function enter_select_mode(index) {
+      select_mode = true;
+      selected = new Set([index]);
+   }
+
+   function exit_select_mode() {
+      select_mode = false;
+      selected = new Set();
+      rect_active = false;
+      rect_pending = false;
+   }
+
+   function toggle_select(index) {
+      if (!full_script[index]?.is_scene) {
+         const s = new Set(selected);
+         if (s.has(index)) s.delete(index);
+         else s.add(index);
+         selected = s;
+      }
+   }
+
+   function start_long_press(index) {
+      long_press_timer = setTimeout(() => {
+         enter_select_mode(index);
+      }, 500);
+   }
+
+   function cancel_long_press() {
+      clearTimeout(long_press_timer);
+   }
+
+   // Actualizar selección según el rectángulo actual
+   function update_rect_selection() {
+      const rx1 = Math.min(rect_start_x, rect_cur_x);
+      const rx2 = Math.max(rect_start_x, rect_cur_x);
+      const ry1 = Math.min(rect_start_y, rect_cur_y);
+      const ry2 = Math.max(rect_start_y, rect_cur_y);
+
+      const new_selected = new Set();
+      document.querySelectorAll("[data-line-index]").forEach((el) => {
+         const idx = parseInt(el.dataset.lineIndex);
+         if (isNaN(idx) || full_script[idx]?.is_scene) return;
+         const r = el.getBoundingClientRect();
+         const threshold = 4;
+         if (r.bottom >= ry1 - threshold && r.top <= ry2 + threshold && r.right >= rx1 && r.left <= rx2) {
+            new_selected.add(idx);
+         }
+      });
+      selected = new_selected;
+   }
+
+   function on_mouseup() {
+      rect_pending = false;
+      if (rect_active) {
+         rect_active = false;
+         if (selected.size === 0 && !select_mode) return;
+         select_mode = true;
+      }
+   }
+
+   function delete_selected() {
+      if (selected.size === 0) return;
+      pending_delete_index = -1;
+      delete_dialog?.showModal();
+   }
 
    // ── Escenas ──
    let scene_refs = $state({});
@@ -178,6 +265,10 @@
          const is_line_input = tag === "INPUT" && !is_main_input;
 
          if (e.code === "Escape") {
+            if (select_mode) {
+               exit_select_mode();
+               return;
+            }
             char_menu?.close_all?.();
             cancel_delete();
             return;
@@ -270,8 +361,55 @@
          }
       }
 
+      function on_mouseup_global() {
+         on_mouseup();
+      }
+
+      function on_mousemove_global(e) {
+         if (!rect_pending && !rect_active) return;
+         rect_cur_x = e.clientX;
+         rect_cur_y = e.clientY;
+         if (rect_pending) {
+            const dx = Math.abs(rect_cur_x - rect_start_x);
+            const dy = Math.abs(rect_cur_y - rect_start_y);
+            if (dx > RECT_THRESHOLD || dy > RECT_THRESHOLD) {
+               rect_pending = false;
+               rect_active = true;
+               cancel_long_press();
+            } else {
+               return;
+            }
+         }
+         update_rect_selection();
+      }
+
+      function on_mousedown_global(e) {
+         // Solo botón izquierdo, no en inputs ni buttons ni dialogs
+         if (e.button !== 0) return;
+         const tag = e.target.tagName;
+         if (tag === "INPUT" || tag === "BUTTON" || tag === "A" || e.target.closest("dialog")) return;
+         // No iniciar si ya estamos en modo selección y hacemos click en una línea
+         if (select_mode && e.target.closest("[data-line-index]")) return;
+
+         rect_pending = true;
+         rect_active = false;
+         rect_start_x = e.clientX;
+         rect_start_y = e.clientY;
+         rect_cur_x = e.clientX;
+         rect_cur_y = e.clientY;
+         selected = new Set();
+      }
+
       window.addEventListener("keydown", on_keydown);
-      return () => window.removeEventListener("keydown", on_keydown);
+      window.addEventListener("mouseup", on_mouseup_global);
+      window.addEventListener("mousemove", on_mousemove_global);
+      window.addEventListener("mousedown", on_mousedown_global);
+      return () => {
+         window.removeEventListener("keydown", on_keydown);
+         window.removeEventListener("mouseup", on_mouseup_global);
+         window.removeEventListener("mousemove", on_mousemove_global);
+         window.removeEventListener("mousedown", on_mousedown_global);
+      };
    });
 
    function update_input(new_text, i) {
@@ -279,8 +417,8 @@
    }
 
    function confirm_delete(index) {
-      pending_delete_index = index;
-      delete_dialog?.showModal();
+      if (select_mode) return;
+      full_script = full_script.filter((_, i) => i !== index);
    }
    function cancel_delete() {
       pending_delete_index = null;
@@ -288,7 +426,14 @@
    }
    function execute_delete() {
       if (pending_delete_index === null) return;
-      full_script = full_script.filter((_, i) => i !== pending_delete_index);
+      if (pending_delete_index === -1) {
+         // Eliminación por lote
+         const to_delete = selected;
+         full_script = full_script.filter((_, i) => !to_delete.has(i));
+         exit_select_mode();
+      } else {
+         full_script = full_script.filter((_, i) => i !== pending_delete_index);
+      }
       pending_delete_index = null;
       delete_dialog?.close();
    }
@@ -479,71 +624,88 @@
                <polyline points="14 2 14 8 20 8" />
             </svg>JSON
          </button>
-         <a href="/dashboard/scripts" class="btn btn-ghost btn-sm">
-            <svg
-               xmlns="http://www.w3.org/2000/svg"
-               width="13"
-               height="13"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               stroke-width="2"
-               stroke-linecap="round"
-               stroke-linejoin="round"
+
+         {#if select_mode}
+            <button class="btn btn-ghost btn-sm" onclick={exit_select_mode} title="Cancelar selección (Esc)">
+               <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+               >
+                  <path d="M18 6 6 18M6 6l12 12" />
+               </svg>
+               Cancelar
+            </button>
+            <button class="btn btn-sm delete-batch-btn" onclick={delete_selected} disabled={selected.size === 0}>
+               <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+               >
+                  <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+               </svg>
+               Eliminar {selected.size > 0 ? `(${selected.size})` : ""}
+            </button>
+         {:else}
+            <button
+               class="btn btn-sm save-btn"
+               class:save-btn-idle={save_status === null}
+               class:save-btn-saving={save_status === "saving"}
+               class:save-btn-success={save_status === "success"}
+               class:save-btn-error={save_status === "error" || save_status === "no_title" || save_status === "no_lines"}
+               onclick={save_script}
+               disabled={save_status === "saving"}
             >
-               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-               <polyline points="9 22 9 12 15 12 15 22" />
-            </svg>Mis scripts
-         </a>
-
-         <div class="actions-divider"></div>
-
-
-         <button
-            class="btn btn-sm save-btn"
-            class:save-btn-idle={save_status === null}
-            class:save-btn-saving={save_status === "saving"}
-            class:save-btn-success={save_status === "success"}
-            class:save-btn-error={save_status === "error" || save_status === "no_title" || save_status === "no_lines"}
-            onclick={save_script}
-            disabled={save_status === "saving"}
-         >
-            <span class="save-label" class:save-label-active={save_status === null}>Guardar</span>
-            <span class="save-label save-label-icon" class:save-label-active={save_status === "saving"}>
-               <svg
-                  class="spin"
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="11"
-                  height="11"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-               >
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-               </svg><span>Guardando</span>
-            </span>
-            <span class="save-label save-label-icon" class:save-label-active={save_status === "success"}>
-               <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="11"
-                  height="11"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-               >
-                  <polyline points="20 6 9 17 4 12" />
-               </svg><span>Guardado</span>
-            </span>
-            <span class="save-label" class:save-label-active={save_status === "error"}>Error al guardar</span>
-            <span class="save-label" class:save-label-active={save_status === "no_title"}>Falta el título</span>
-            <span class="save-label" class:save-label-active={save_status === "no_lines"}>Script vacío</span>
-         </button>
+               <span class="save-label" class:save-label-active={save_status === null}>Guardar</span>
+               <span class="save-label save-label-icon" class:save-label-active={save_status === "saving"}>
+                  <svg
+                     class="spin"
+                     xmlns="http://www.w3.org/2000/svg"
+                     width="11"
+                     height="11"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2.5"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                  >
+                     <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg><span>Guardando</span>
+               </span>
+               <span class="save-label save-label-icon" class:save-label-active={save_status === "success"}>
+                  <svg
+                     xmlns="http://www.w3.org/2000/svg"
+                     width="11"
+                     height="11"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2.5"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                  >
+                     <polyline points="20 6 9 17 4 12" />
+                  </svg><span>Guardado</span>
+               </span>
+               <span class="save-label" class:save-label-active={save_status === "error"}>Error al guardar</span>
+               <span class="save-label" class:save-label-active={save_status === "no_title"}>Falta el título</span>
+               <span class="save-label" class:save-label-active={save_status === "no_lines"}>Script vacío</span>
+            </button>
+         {/if}
       </div>
    </div>
 
@@ -591,6 +753,19 @@
                class:context-line={line.is_context}
                class:thought-line={line.line_type === "thought"}
                class:narration-line={line.line_type === "narration"}
+               class:select-mode-line={select_mode}
+               class:line-selected={selected.has(index)}
+               onmousedown={() => {
+                  if (!select_mode) start_long_press(index);
+               }}
+               onmouseup={() => {
+                  cancel_long_press();
+                  if (select_mode) toggle_select(index);
+               }}
+               onmouseleave={cancel_long_press}
+               role="option"
+               aria-selected={selected.has(index)}
+               data-line-index={index}
             >
                <button
                   class="insert-scene-btn"
@@ -645,28 +820,33 @@
                   onblur={(e) => update_input(e.currentTarget.value, index)}
                   autocomplete="off"
                   spellcheck="true"
+                  disabled={select_mode}
+                  tabindex={select_mode ? -1 : 0}
                />
-               <button
-                  class="line-delete"
-                  onclick={() => confirm_delete(index)}
-                  aria-label="Eliminar línea"
-                  tabindex="-1"
-               >
-                  <svg
-                     xmlns="http://www.w3.org/2000/svg"
-                     width="14"
-                     height="14"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     stroke-width="2"
-                     stroke-linecap="round"
-                     stroke-linejoin="round"
+               {#if !select_mode}
+                  <button
+                     class="line-delete"
+                     onclick={() => confirm_delete(index)}
+                     aria-label="Eliminar línea"
+                     tabindex="-1"
+                     title="Click para eliminar · Mantener para selección múltiple"
                   >
-                     <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                     <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                  </svg>
-               </button>
+                     <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                     >
+                        <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                     </svg>
+                  </button>
+               {/if}
             </div>
          {/if}
       {/each}
@@ -701,15 +881,19 @@
    </div>
 </div>
 
+<!-- Rectángulo de selección -->
+{#if rect_active}
+   <div class="select-rect" style={rect_style()}></div>
+{/if}
+
 <dialog bind:this={delete_dialog}>
-   <h2 class="dialog-title">¿Eliminar esta línea?</h2>
+   <h2 class="dialog-title">¿Eliminar {selected.size} {selected.size === 1 ? "línea" : "líneas"}?</h2>
    <p class="dialog-body">Esta acción no se puede deshacer.</p>
    <div class="dialog-actions">
       <button onclick={cancel_delete} class="btn btn-ghost">Cancelar</button>
       <button onclick={execute_delete} class="btn btn-danger">Eliminar</button>
    </div>
 </dialog>
-
 
 <style>
    :global(:root) {
@@ -1042,6 +1226,52 @@
       color: var(--error-text);
    }
 
+   /* ── Modo selección ── */
+   .select-mode-line {
+      cursor: pointer;
+      user-select: none;
+      border-radius: var(--radius-sm);
+      transition: background var(--transition);
+   }
+   .select-mode-line .line-input {
+      pointer-events: none;
+   }
+   .select-mode-line .insert-scene-btn {
+      pointer-events: none;
+   }
+   .select-mode-line .line-character {
+      pointer-events: none;
+   }
+   .select-mode-line:hover {
+      background: var(--bg-muted);
+   }
+   .line-selected {
+      background: color-mix(in srgb, var(--error-text) 10%, transparent) !important;
+      border-radius: var(--radius-sm);
+   }
+   .line-selected .line-character {
+      color: var(--error-text) !important;
+      opacity: 1 !important;
+   }
+   .line-selected .line-input {
+      color: var(--error-text) !important;
+   }
+
+   .delete-batch-btn {
+      background: var(--error-text);
+      color: #fff;
+      border-color: var(--error-text);
+      min-width: 114px;
+      justify-content: center;
+   }
+   .delete-batch-btn:hover:not(:disabled) {
+      opacity: 0.85;
+   }
+   .delete-batch-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+   }
+
    /* ── Input zone ── */
    .input-zone {
       display: flex;
@@ -1171,6 +1401,16 @@
       display: flex;
       justify-content: flex-end;
       gap: 8px;
+   }
+
+   /* ── Rectángulo de selección ── */
+   :global(.select-rect) {
+      position: fixed;
+      border: 1px solid var(--accent);
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+      pointer-events: none;
+      z-index: 100;
+      border-radius: 2px;
    }
 
    .btn-danger {
