@@ -1,5 +1,3 @@
-// With `output: 'static'` configured:
-// export const prerender = false;
 import type { APIRoute } from "astro";
 import { supabase } from "@supabase/supabase";
 
@@ -12,15 +10,12 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     return new Response("Email and password are required", { status: 400 });
   }
 
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-  });
+  const { error } = await supabase.auth.signUp({ email, password });
 
   if (error) {
-    console.log(error)
+    console.log(error);
     return new Response(error.message, { status: 500 });
   }
 
-  return redirect("/auth/sign");
-};      
+  return redirect("/auth/login");
+};

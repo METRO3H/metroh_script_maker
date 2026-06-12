@@ -1,5 +1,4 @@
 ---
-// dashboard/scripts.astro
 import Layout from "@layouts/MainLayout.astro";
 import ScriptList from "@components/ScriptList/ScriptList.svelte";
 import { supabase } from "@supabase/supabase";
@@ -8,7 +7,7 @@ import { require_auth, clear_auth } from "@utils/auth";
 const auth = await require_auth(Astro.cookies).catch(() => null);
 if (!auth) {
   clear_auth(Astro.cookies);
-  return Astro.redirect("/auth/sign");
+  return Astro.redirect("/auth/login");
 }
 
 const { user } = auth;
@@ -20,7 +19,7 @@ const script_list = scripts ?? [];
   <div class="scripts-page">
 
     <header class="app-header">
-      <a href="/dashboard/scripts" class="app-wordmark">Metroh</a>
+      <a href="/scripts" class="app-wordmark">Metroh</a>
 
       <div class="app-header-right">
         <span class="app-user-email">{user.email}</span>
@@ -39,9 +38,7 @@ const script_list = scripts ?? [];
           </svg>
         </button>
 
-        <a href="/api/auth/signout" class="btn btn-danger-ghost btn-sm">
-          Cerrar sesión
-        </a>
+        <a href="/api/auth/logout" class="btn btn-danger-ghost btn-sm">Cerrar sesión</a>
       </div>
     </header>
 
@@ -56,7 +53,7 @@ const script_list = scripts ?? [];
             }
           </p>
         </div>
-        <a href="/dashboard" class="btn btn-primary">
+        <a href="/scripts/editor" class="btn btn-primary">
           <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2.5"
             stroke-linecap="round" stroke-linejoin="round">
@@ -72,37 +69,10 @@ const script_list = scripts ?? [];
 </Layout>
 
 <style>
-  .scripts-page {
-    min-height: 100vh;
-    background: var(--bg-subtle);
-    display: flex;
-    flex-direction: column;
-  }
-  .scripts-main {
-    flex: 1;
-    max-width: 900px;
-    width: 100%;
-    margin: 0 auto;
-    padding: 36px 24px 80px;
-  }
-  .section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 28px;
-    gap: 16px;
-  }
-  .section-title {
-    font-size: 22px;
-    font-weight: 600;
-    color: var(--text-primary);
-    letter-spacing: -0.02em;
-    margin-bottom: 4px;
-  }
-  .section-sub {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-muted);
-  }
+  .scripts-page { min-height: 100vh; background: var(--bg-subtle); display: flex; flex-direction: column; }
+  .scripts-main { flex: 1; max-width: 900px; width: 100%; margin: 0 auto; padding: 36px 24px 80px; }
+  .section-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; gap: 16px; }
+  .section-title { font-size: 22px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.02em; margin-bottom: 4px; }
+  .section-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
   .btn-sm { font-size: 10px; padding: 5px 12px; }
 </style>

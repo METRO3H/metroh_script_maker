@@ -60,7 +60,7 @@
     </div>
     <p class="empty-title">No tienes scripts guardados</p>
     <p class="empty-sub">Crea uno nuevo y aparecerá aquí</p>
-    <a href="/dashboard" class="btn btn-primary" style="margin-top: 8px;">
+    <a href="/scripts/editor" class="btn btn-primary" style="margin-top: 8px;">
       Crear el primero
     </a>
   </div>
@@ -68,7 +68,7 @@
   <div class="scripts-grid">
     {#each script_list as s}
       <div class="script-card-wrapper">
-        <a href={`/dashboard?id=${s.id}`} class="script-card">
+        <a href={`/scripts/editor?id=${s.id}`} class="script-card">
           <h2 class="script-name">{s.name}</h2>
           <div class="script-meta">
             <span class="meta-item">
@@ -125,83 +125,36 @@
 </dialog>
 
 <style>
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 80px 24px;
-    gap: 8px;
-    text-align: center;
-  }
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 24px; gap: 8px; text-align: center; }
   .empty-icon { color: var(--text-muted); margin-bottom: 8px; opacity: 0.5; }
   .empty-title { font-size: 15px; font-weight: 500; color: var(--text-secondary); }
   .empty-sub { font-size: 13px; color: var(--text-muted); }
 
-  .scripts-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 12px;
-  }
+  .scripts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 
-  .script-card-wrapper {
-    position: relative;
-  }
+  .script-card-wrapper { position: relative; }
 
   .script-delete-btn {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    opacity: 0;
-    padding: 5px 7px;
-    transition: opacity var(--transition), color var(--transition),
-                border-color var(--transition), background var(--transition);
+    position: absolute; top: 10px; right: 10px; opacity: 0; padding: 5px 7px;
+    transition: opacity var(--transition), color var(--transition), border-color var(--transition), background var(--transition);
     z-index: 1;
   }
-  .script-card-wrapper:hover .script-delete-btn {
-    opacity: 1;
-  }
+  .script-card-wrapper:hover .script-delete-btn { opacity: 1; }
 
   .script-name {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin-bottom: 10px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    transition: color var(--transition);
-    padding-right: 28px;
+    font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+    color: var(--text-primary); margin-bottom: 10px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: color var(--transition); padding-right: 28px;
   }
   .script-card-wrapper:hover .script-name { color: var(--accent-text); }
 
   .script-meta { display: flex; gap: 14px; margin-bottom: 16px; }
-  .meta-item {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-muted);
-  }
+  .meta-item { display: flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
 
-  .script-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-top: 12px;
-    border-top: 1px solid var(--border);
-  }
+  .script-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid var(--border); }
   .script-date { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
-  .script-cta {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--accent-text);
-    opacity: 0;
-    transition: opacity var(--transition);
-  }
+  .script-cta { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--accent-text); opacity: 0; transition: opacity var(--transition); }
   .script-card-wrapper:hover .script-cta { opacity: 1; }
 
   .dialog-title { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }

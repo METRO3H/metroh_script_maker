@@ -1,8 +1,13 @@
 ---
 import Layout from "@layouts/MainLayout.astro";
+
+const { cookies, redirect } = Astro;
+const accessToken  = cookies.get("sb-access-token");
+const refreshToken = cookies.get("sb-refresh-token");
+if (accessToken && refreshToken) return redirect("/scripts");
 ---
 
-<Layout title="Crear cuenta">
+<Layout title="Iniciar sesión">
   <div class="auth-page">
 
     <button class="theme-toggle auth-theme-toggle" aria-label="Cambiar tema">
@@ -22,13 +27,13 @@ import Layout from "@layouts/MainLayout.astro";
     <div class="auth-card">
       <p class="auth-wordmark">Metroh</p>
 
-      <h1 class="auth-title">Crear cuenta</h1>
+      <h1 class="auth-title">Iniciar sesión</h1>
       <p class="auth-subtitle">
-        ¿Ya tienes cuenta?
-        <a href="/auth/login" class="auth-link">Inicia sesión</a>
+        ¿No tienes cuenta?
+        <a href="/auth/register" class="auth-link">Regístrate</a>
       </p>
 
-      <form action="/api/auth/register" method="post" class="auth-form">
+      <form action="/api/auth/login" method="post" class="auth-form">
         <div class="auth-field">
           <label for="email" class="auth-label">Email</label>
           <input type="email" name="email" id="email" placeholder="tu@email.com"
@@ -37,9 +42,9 @@ import Layout from "@layouts/MainLayout.astro";
         <div class="auth-field">
           <label for="password" class="auth-label">Contraseña</label>
           <input type="password" name="password" id="password" placeholder="••••••••"
-            class="auth-input" autocomplete="new-password" required />
+            class="auth-input" autocomplete="current-password" required />
         </div>
-        <button type="submit" class="btn btn-primary auth-submit">Crear cuenta</button>
+        <button type="submit" class="btn btn-primary auth-submit">Entrar</button>
       </form>
     </div>
   </div>

@@ -34,7 +34,7 @@
    let full_script = $state(init.lines);
    let current_input = $state("");
    let current_character = $state(0);
-   let current_type = $state("dialogue"); // "dialogue" | "thought" | "narration"
+   let current_type = $state("dialogue");
    let script_count = $derived(full_script.length);
 
    let show_onboarding = $state(initialScript === null);
@@ -53,19 +53,17 @@
    let pending_delete_index = $state(null);
    let lines_area = $state(null);
 
-   // ── Modo selección por lote ──
    let select_mode = $state(false);
    let selected = $state(new Set());
    let long_press_timer = null;
 
-   // ── Rectángulo de selección ──
    let rect_active = $state(false);
-   let rect_pending = $state(false); // mousedown ocurrió, esperando movimiento mínimo
+   let rect_pending = $state(false);
    let rect_start_x = $state(0);
    let rect_start_y = $state(0);
    let rect_cur_x = $state(0);
    let rect_cur_y = $state(0);
-   const RECT_THRESHOLD = 6; // px mínimos antes de activar el rectángulo
+   const RECT_THRESHOLD = 6;
 
    let rect_style = $derived(() => {
       const x = Math.min(rect_start_x, rect_cur_x);
@@ -106,7 +104,6 @@
       clearTimeout(long_press_timer);
    }
 
-   // Actualizar selección según el rectángulo actual
    function update_rect_selection() {
       const rx1 = Math.min(rect_start_x, rect_cur_x);
       const rx2 = Math.max(rect_start_x, rect_cur_x);
@@ -141,7 +138,6 @@
       delete_dialog?.showModal();
    }
 
-   // ── Escenas ──
    let scene_refs = $state({});
 
    function insert_scene(at_index) {
@@ -175,7 +171,6 @@
       return scenes.length > 0 ? scenes[scenes.length - 1].scene_number : 0;
    });
 
-   // Eliminar personaje
    function handle_delete_character({ index, mode }) {
       if (mode === "remove_lines") {
          full_script = full_script.filter((l) => l.is_scene || l.character_index !== index);
@@ -203,7 +198,6 @@
       if (current_character >= next_chars.length) current_character = 0;
    }
 
-   // Label width dinámico
    const LABEL_MAX_PX = 96;
    const CHAR_PX = 7.5;
    let label_width = $derived(() => {
@@ -211,8 +205,6 @@
       return Math.min(Math.ceil(longest * CHAR_PX), LABEL_MAX_PX);
    });
 
-   // Colores dinámicos por personaje — hues equidistantes en HSL
-   // Offset de 30° para empezar en azul-cian, evitando el violeta del accent (~265°)
    function char_color(index, total) {
       const n = Math.max(total, 1);
       const hue = (30 + index * (360 / n)) % 360;
@@ -221,7 +213,6 @@
       return `hsl(${hue}, 72%, ${l})`;
    }
 
-   // Prefijo visual según tipo
    const TYPE_ICONS = {
       dialogue: "",
       thought: "✦ ",
@@ -255,7 +246,6 @@
 
    let char_menu = $state(null);
 
-   // Tipos en orden para ciclar con Shift+←/→
    const TYPES_CYCLE = ["dialogue", "thought", "narration", "context"];
 
    $effect(() => {
@@ -265,10 +255,7 @@
          const is_line_input = tag === "INPUT" && !is_main_input;
 
          if (e.code === "Escape") {
-            if (select_mode) {
-               exit_select_mode();
-               return;
-            }
+            if (select_mode) { exit_select_mode(); return; }
             char_menu?.close_all?.();
             cancel_delete();
             return;
@@ -286,7 +273,6 @@
             return;
          }
 
-         // Shift+Enter — nueva escena al final
          if (e.shiftKey && (e.code === "Enter" || e.code === "NumpadEnter")) {
             e.preventDefault();
             insert_scene(full_script.length);
@@ -301,7 +287,6 @@
             return;
          }
 
-         // Shift+↑/↓ — navegar entre escenas
          if (e.shiftKey && e.code === "ArrowUp") {
             e.preventDefault();
             const scenes = full_script.map((l) => (l.is_scene ? l.scene_number : null)).filter((n) => n !== null);
@@ -322,48 +307,34 @@
             return;
          }
 
-         // Shift+←/→ — ciclar entre personajes
          if (e.shiftKey && e.code === "ArrowRight") {
             e.preventDefault();
             if (characters.length === 0) return;
-            if (current_character === -1) {
-               current_character = 0;
-            } else {
-               current_character = (current_character + 1) % characters.length;
-            }
+            if (current_character === -1) { current_character = 0; }
+            else { current_character = (current_character + 1) % characters.length; }
             return;
          }
 
          if (e.shiftKey && e.code === "ArrowLeft") {
             e.preventDefault();
             if (characters.length === 0) return;
-            if (current_character === -1) {
-               current_character = characters.length - 1;
-            } else {
-               current_character = (current_character - 1 + characters.length) % characters.length;
-            }
+            if (current_character === -1) { current_character = characters.length - 1; }
+            else { current_character = (current_character - 1 + characters.length) % characters.length; }
             return;
          }
 
-         // Shift+< — ciclar entre tipos (dialogue → thought → narration → context)
          if (e.shiftKey && e.code === "IntlBackslash") {
             e.preventDefault();
             const current_in_cycle = current_character === -1 ? "context" : current_type;
             const idx = TYPES_CYCLE.indexOf(current_in_cycle);
             const next = TYPES_CYCLE[(idx + 1) % TYPES_CYCLE.length];
-            if (next === "context") {
-               current_character = -1;
-            } else {
-               if (current_character === -1) current_character = 0;
-               current_type = next;
-            }
+            if (next === "context") { current_character = -1; }
+            else { if (current_character === -1) current_character = 0; current_type = next; }
             return;
          }
       }
 
-      function on_mouseup_global() {
-         on_mouseup();
-      }
+      function on_mouseup_global() { on_mouseup(); }
 
       function on_mousemove_global(e) {
          if (!rect_pending && !rect_active) return;
@@ -376,19 +347,15 @@
                rect_pending = false;
                rect_active = true;
                cancel_long_press();
-            } else {
-               return;
-            }
+            } else { return; }
          }
          update_rect_selection();
       }
 
       function on_mousedown_global(e) {
-         // Solo botón izquierdo, no en inputs ni buttons ni dialogs
          if (e.button !== 0) return;
          const tag = e.target.tagName;
          if (tag === "INPUT" || tag === "BUTTON" || tag === "A" || e.target.closest("dialog")) return;
-         // No iniciar si ya estamos en modo selección y hacemos click en una línea
          if (select_mode && e.target.closest("[data-line-index]")) return;
 
          rect_pending = true;
@@ -427,7 +394,6 @@
    function execute_delete() {
       if (pending_delete_index === null) return;
       if (pending_delete_index === -1) {
-         // Eliminación por lote
          const to_delete = selected;
          full_script = full_script.filter((_, i) => !to_delete.has(i));
          exit_select_mode();
@@ -445,14 +411,8 @@
    }
 
    async function save_script() {
-      if (!script_title.trim()) {
-         show_toast("no_title");
-         return;
-      }
-      if (full_script.filter((l) => !l.is_scene && !l.is_context).length === 0) {
-         show_toast("no_lines");
-         return;
-      }
+      if (!script_title.trim()) { show_toast("no_title"); return; }
+      if (full_script.filter((l) => !l.is_scene && !l.is_context).length === 0) { show_toast("no_lines"); return; }
       show_toast("saving");
       const res = await fetch("/api/script/save", {
          method: "POST",
@@ -462,36 +422,18 @@
             script_name: script_title,
             characters: characters.map((c) => c.name),
             lines: full_script.map((line, i) => {
-               if (line.is_scene)
-                  return {
-                     line_number: i + 1,
-                     line_type: "scene",
-                     scene_number: line.scene_number,
-                  };
-               if (line.is_context)
-                  return {
-                     line_number: i + 1,
-                     line_type: "context",
-                     content: line.text,
-                  };
-               return {
-                  line_number: i + 1,
-                  line_type: line.line_type ?? "dialogue",
-                  character_name: characters[line.character_index].name,
-                  content: line.text,
-               };
+               if (line.is_scene) return { line_number: i + 1, line_type: "scene", scene_number: line.scene_number };
+               if (line.is_context) return { line_number: i + 1, line_type: "context", content: line.text };
+               return { line_number: i + 1, line_type: line.line_type ?? "dialogue", character_name: characters[line.character_index].name, content: line.text };
             }),
          }),
       });
-      if (!res.ok) {
-         show_toast("error");
-         return;
-      }
+      if (!res.ok) { show_toast("error"); return; }
       const { script_id: returned_id } = await res.json();
       const is_new = script_id === null;
       script_id = returned_id;
       if (is_new) {
-         history.pushState({}, "", `/dashboard?id=${returned_id}`);
+         history.pushState({}, "", `/scripts/editor?id=${returned_id}`);
       }
       show_toast("success");
    }
@@ -512,38 +454,14 @@
    function export_json() {
       const scenes = [];
       let current_scene = null;
-
       for (const line of full_script) {
-         if (line.is_scene) {
-            current_scene = [];
-            scenes.push(current_scene);
-         } else if (current_scene !== null) {
-            if (line.is_context) {
-               current_scene.push({ type: "context", content: line.text });
-            } else {
-               current_scene.push({
-                  type: line.line_type ?? "dialogue",
-                  character: characters[line.character_index].name,
-                  content: line.text,
-               });
-            }
+         if (line.is_scene) { current_scene = []; scenes.push(current_scene); }
+         else if (current_scene !== null) {
+            if (line.is_context) { current_scene.push({ type: "context", content: line.text }); }
+            else { current_scene.push({ type: line.line_type ?? "dialogue", character: characters[line.character_index].name, content: line.text }); }
          }
       }
-
-      download_file(
-         JSON.stringify(
-            {
-               id: script_id,
-               name: script_title,
-               characters: characters.map((c) => c.name),
-               scenes,
-            },
-            null,
-            2,
-         ),
-         `${script_title || "script"}.json`,
-         "application/json",
-      );
+      download_file(JSON.stringify({ id: script_id, name: script_title, characters: characters.map((c) => c.name), scenes }, null, 2), `${script_title || "script"}.json`, "application/json");
    }
 
    function download_file(content, filename, mime) {
@@ -563,9 +481,7 @@
          if (lines_area) lines_area.scrollTo({ top: lines_area.scrollHeight, behavior: "smooth" });
       });
    });
-   $effect(() => {
-      is_mounted = true;
-   });
+   $effect(() => { is_mounted = true; });
 </script>
 
 {#if show_onboarding}
@@ -576,86 +492,38 @@
    <div class="editor-header">
       <div class="title-block">
          <label for="script-title" class="field-label">Título</label>
-         <input
-            id="script-title"
-            type="text"
-            class="title-input"
-            placeholder="Sin título..."
-            bind:value={script_title}
-            autocomplete="off"
-         />
+         <input id="script-title" type="text" class="title-input" placeholder="Sin título..."
+            bind:value={script_title} autocomplete="off" />
       </div>
 
       <div class="editor-actions">
          <button onclick={export_txt} class="btn btn-ghost btn-sm" title="Exportar como .txt">
-            <svg
-               xmlns="http://www.w3.org/2000/svg"
-               width="13"
-               height="13"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               stroke-width="2"
-               stroke-linecap="round"
-               stroke-linejoin="round"
-            >
-               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-               <polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line
-                  x1="16"
-                  y1="17"
-                  x2="8"
-                  y2="17"
-               />
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+               <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
             </svg>TXT
          </button>
          <button onclick={export_json} class="btn btn-ghost btn-sm" title="Exportar como .json">
-            <svg
-               xmlns="http://www.w3.org/2000/svg"
-               width="13"
-               height="13"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               stroke-width="2"
-               stroke-linecap="round"
-               stroke-linejoin="round"
-            >
-               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-               <polyline points="14 2 14 8 20 8" />
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+               <polyline points="14 2 14 8 20 8"/>
             </svg>JSON
          </button>
 
          {#if select_mode}
             <button class="btn btn-ghost btn-sm" onclick={exit_select_mode} title="Cancelar selección (Esc)">
-               <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="11"
-                  height="11"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-               >
-                  <path d="M18 6 6 18M6 6l12 12" />
-               </svg>
-               Cancelar
+               <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 6 6 18M6 6l12 12"/>
+               </svg>Cancelar
             </button>
             <button class="btn btn-sm delete-batch-btn" onclick={delete_selected} disabled={selected.size === 0}>
-               <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="11"
-                  height="11"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-               >
-                  <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+               <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
                </svg>
                Eliminar {selected.size > 0 ? `(${selected.size})` : ""}
             </button>
@@ -671,34 +539,15 @@
             >
                <span class="save-label" class:save-label-active={save_status === null}>Guardar</span>
                <span class="save-label save-label-icon" class:save-label-active={save_status === "saving"}>
-                  <svg
-                     class="spin"
-                     xmlns="http://www.w3.org/2000/svg"
-                     width="11"
-                     height="11"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     stroke-width="2.5"
-                     stroke-linecap="round"
-                     stroke-linejoin="round"
-                  >
-                     <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  <svg class="spin" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
+                     fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                     <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
                   </svg><span>Guardando</span>
                </span>
                <span class="save-label save-label-icon" class:save-label-active={save_status === "success"}>
-                  <svg
-                     xmlns="http://www.w3.org/2000/svg"
-                     width="11"
-                     height="11"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     stroke-width="2.5"
-                     stroke-linecap="round"
-                     stroke-linejoin="round"
-                  >
-                     <polyline points="20 6 9 17 4 12" />
+                  <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
+                     fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                     <polyline points="20 6 9 17 4 12"/>
                   </svg><span>Guardado</span>
                </span>
                <span class="save-label" class:save-label-active={save_status === "error"}>Error al guardar</span>
@@ -725,24 +574,11 @@
                <div class="scene-separator-inner">
                   <span class="scene-label">Escena {line.scene_number}</span>
                   <div class="scene-line"></div>
-                  <button
-                     class="scene-delete"
-                     onclick={() => delete_scene(index)}
-                     aria-label="Eliminar escena {line.scene_number}"
-                     title="Eliminar escena"
-                  >
-                     <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="10"
-                        height="10"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="3"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                     >
-                        <path d="M18 6 6 18M6 6l12 12" />
+                  <button class="scene-delete" onclick={() => delete_scene(index)}
+                     aria-label="Eliminar escena {line.scene_number}" title="Eliminar escena">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 6 6 18M6 6l12 12"/>
                      </svg>
                   </button>
                </div>
@@ -755,39 +591,19 @@
                class:narration-line={line.line_type === "narration"}
                class:select-mode-line={select_mode}
                class:line-selected={selected.has(index)}
-               onmousedown={() => {
-                  if (!select_mode) start_long_press(index);
-               }}
-               onmouseup={() => {
-                  cancel_long_press();
-                  if (select_mode) toggle_select(index);
-               }}
+               onmousedown={() => { if (!select_mode) start_long_press(index); }}
+               onmouseup={() => { cancel_long_press(); if (select_mode) toggle_select(index); }}
                onmouseleave={cancel_long_press}
                role="option"
                aria-selected={selected.has(index)}
                data-line-index={index}
             >
-               <button
-                  class="insert-scene-btn"
-                  onclick={() => insert_scene(index)}
-                  title="Insertar escena aquí"
-                  aria-label="Insertar escena antes de esta línea"
-                  tabindex="-1"
-               >
-                  <svg
-                     xmlns="http://www.w3.org/2000/svg"
-                     width="9"
-                     height="9"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     stroke-width="2.5"
-                     stroke-linecap="round"
-                     stroke-linejoin="round"
-                  >
-                     <path d="M5 12h14" /><path d="M12 5v14" />
-                  </svg>
-                  escena
+               <button class="insert-scene-btn" onclick={() => insert_scene(index)}
+                  title="Insertar escena aquí" aria-label="Insertar escena antes de esta línea" tabindex="-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24"
+                     fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                     <path d="M5 12h14"/><path d="M12 5v14"/>
+                  </svg>escena
                </button>
 
                <span
@@ -796,17 +612,12 @@
                   class:thought-label={line.line_type === "thought"}
                   class:narration-label={line.line_type === "narration"}
                   style={line.is_context || line.line_type === "narration" || line.line_type === "thought"
-                     ? ""
-                     : `color: ${char_color(line.character_index, characters.length)}`}
+                     ? "" : `color: ${char_color(line.character_index, characters.length)}`}
                >
-                  {#if line.is_context}
-                     contexto
-                  {:else if line.line_type === "thought"}
-                     ✦ {characters[line.character_index]?.name ?? "?"}
-                  {:else if line.line_type === "narration"}
-                     ◈ {characters[line.character_index]?.name ?? "?"}
-                  {:else}
-                     {characters[line.character_index]?.name ?? "?"}
+                  {#if line.is_context}contexto
+                  {:else if line.line_type === "thought"}✦ {characters[line.character_index]?.name ?? "?"}
+                  {:else if line.line_type === "narration"}◈ {characters[line.character_index]?.name ?? "?"}
+                  {:else}{characters[line.character_index]?.name ?? "?"}
                   {/if}
                </span>
                <input
@@ -824,26 +635,13 @@
                   tabindex={select_mode ? -1 : 0}
                />
                {#if !select_mode}
-                  <button
-                     class="line-delete"
-                     onclick={() => confirm_delete(index)}
-                     aria-label="Eliminar línea"
-                     tabindex="-1"
-                     title="Click para eliminar · Mantener para selección múltiple"
-                  >
-                     <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                     >
-                        <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                  <button class="line-delete" onclick={() => confirm_delete(index)}
+                     aria-label="Eliminar línea" tabindex="-1"
+                     title="Click para eliminar · Mantener para selección múltiple">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
                      </svg>
                   </button>
                {/if}
@@ -881,7 +679,6 @@
    </div>
 </div>
 
-<!-- Rectángulo de selección -->
 {#if rect_active}
    <div class="select-rect" style={rect_style()}></div>
 {/if}
@@ -897,537 +694,100 @@
 
 <style>
    :global(:root) {
-      --color-b: #0891b2;
-      --color-c: #059669;
-      --color-d: #d97706;
-      --color-e: #db2777;
+      --color-b: #0891b2; --color-c: #059669; --color-d: #d97706; --color-e: #db2777;
    }
    :global([data-theme="dark"]) {
-      --color-b: #22d3ee;
-      --color-c: #34d399;
-      --color-d: #fbbf24;
-      --color-e: #f472b6;
+      --color-b: #22d3ee; --color-c: #34d399; --color-d: #fbbf24; --color-e: #f472b6;
    }
 
-   .editor {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-      min-height: 0;
-      overflow: hidden;
-   }
+   .editor { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+   .editor-header { display: flex; justify-content: space-between; align-items: flex-end; padding: 20px 24px 16px; gap: 16px; }
+   .title-block { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+   .field-label { font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
+   .title-input { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; background: transparent; border: none; border-bottom: 2px solid var(--accent); border-radius: 0; color: var(--text-primary); padding: 4px 0; outline: none; width: 100%; transition: border-color var(--transition); }
+   .title-input::placeholder { color: var(--text-placeholder); font-weight: 400; }
+   .title-input:focus { border-bottom-color: var(--accent-hover); }
+   .editor-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+   .btn-sm { font-size: 10px; padding: 5px 10px; gap: 5px; }
+   .editor-divider { height: 1px; background: var(--border); }
 
-   .editor-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      padding: 20px 24px 16px;
-      gap: 16px;
-   }
+   .lines-area { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 12px 24px; gap: 0; }
+   .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 0; gap: 6px; }
+   .empty-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--text-muted); }
+   .empty-sub { font-size: 12px; color: var(--text-muted); opacity: 0.6; }
 
-   .title-block {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      flex: 1;
-      min-width: 0;
-   }
+   .scene-separator { padding: 12px 0 6px; scroll-margin-top: 12px; }
+   .scene-separator-inner { display: flex; align-items: center; gap: 8px; }
+   .scene-label { font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+   .scene-line { flex: 1; height: 1px; background: var(--border); }
+   .scene-delete { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid transparent; background: transparent; color: var(--text-muted); cursor: pointer; opacity: 0; padding: 0; flex-shrink: 0; transition: opacity var(--transition), background var(--transition), color var(--transition), border-color var(--transition); }
+   .scene-separator:hover .scene-delete { opacity: 1; }
+   .scene-delete:hover { background: var(--error-bg); color: var(--error-text); border-color: var(--error-border); }
 
-   .field-label {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-   }
+   .script-line { position: relative; display: flex; align-items: center; gap: 12px; padding: 3px 0; border-radius: var(--radius-sm); }
+   .insert-scene-btn { position: absolute; top: -1px; left: 50%; transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: 99px; padding: 2px 8px; cursor: pointer; opacity: 0; pointer-events: none; white-space: nowrap; transition: opacity var(--transition), color var(--transition), border-color var(--transition), background var(--transition); z-index: 2; }
+   .script-line:hover .insert-scene-btn { opacity: 1; pointer-events: auto; }
+   .insert-scene-btn:hover { color: var(--accent-text); border-color: var(--accent); background: var(--accent-muted); }
 
-   .title-input {
-      font-family: var(--font-mono);
-      font-size: 22px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      background: transparent;
-      border: none;
-      border-bottom: 2px solid var(--accent);
-      border-radius: 0;
-      color: var(--text-primary);
-      padding: 4px 0;
-      outline: none;
-      width: 100%;
-      transition: border-color var(--transition);
-   }
-   .title-input::placeholder {
-      color: var(--text-placeholder);
-      font-weight: 400;
-   }
-   .title-input:focus {
-      border-bottom-color: var(--accent-hover);
-   }
+   .context-line { margin: 2px 0; }
+   .thought-line { margin: 1px 0; }
+   .narration-line { margin: 1px 0; }
 
-   .editor-actions {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-shrink: 0;
-   }
+   .line-character { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; width: var(--label-w, 72px); min-width: var(--label-w, 72px); text-align: right; flex-shrink: 0; word-break: break-word; line-height: 1.3; }
+   .context-label { color: var(--text-muted) !important; font-style: italic; opacity: 0.7; }
+   .thought-label { color: var(--type-thought) !important; font-style: italic; }
+   .narration-label { color: var(--type-narration) !important; }
 
-   .btn-sm {
-      font-size: 10px;
-      padding: 5px 10px;
-      gap: 5px;
-   }
+   .line-input { flex: 1; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); padding: 7px 10px; font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); outline: none; transition: background var(--transition), border-color var(--transition); }
+   .line-input:hover { background: var(--bg-subtle); border-color: var(--border); }
+   .line-input:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-muted); }
+   .context-input { font-style: italic; color: var(--text-secondary) !important; }
+   .context-input:focus { border-color: var(--border-strong) !important; box-shadow: none !important; }
+   .thought-input { font-style: italic; color: color-mix(in srgb, var(--type-thought) 80%, var(--text-primary)); }
+   .narration-input { font-style: italic; color: color-mix(in srgb, var(--type-narration) 80%, var(--text-primary)); letter-spacing: 0.01em; }
 
-   .editor-divider {
-      height: 1px;
-      background: var(--border);
-   }
+   .line-delete { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-muted); cursor: pointer; opacity: 0; transition: opacity var(--transition), background var(--transition), color var(--transition); flex-shrink: 0; }
+   .script-line:hover .line-delete { opacity: 1; }
+   .line-delete:hover { background: var(--error-bg); color: var(--error-text); }
 
-   /* ── Área de líneas ── */
-   .lines-area {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      padding: 12px 24px;
-      gap: 0;
-   }
+   .select-mode-line { cursor: pointer; user-select: none; border-radius: var(--radius-sm); transition: background var(--transition); }
+   .select-mode-line .line-input { pointer-events: none; }
+   .select-mode-line .insert-scene-btn { pointer-events: none; }
+   .select-mode-line .line-character { pointer-events: none; }
+   .select-mode-line:hover { background: var(--bg-muted); }
+   .line-selected { background: color-mix(in srgb, var(--error-text) 10%, transparent) !important; border-radius: var(--radius-sm); }
+   .line-selected .line-character { color: var(--error-text) !important; opacity: 1 !important; }
+   .line-selected .line-input { color: var(--error-text) !important; }
 
-   .empty-state {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 48px 0;
-      gap: 6px;
-   }
-   .empty-title {
-      font-family: var(--font-mono);
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-muted);
-   }
-   .empty-sub {
-      font-size: 12px;
-      color: var(--text-muted);
-      opacity: 0.6;
-   }
+   .delete-batch-btn { background: var(--error-text); color: #fff; border-color: var(--error-text); min-width: 114px; justify-content: center; }
+   .delete-batch-btn:hover:not(:disabled) { opacity: 0.85; }
+   .delete-batch-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-   /* ── Separador de escena ── */
-   .scene-separator {
-      padding: 12px 0 6px;
-      scroll-margin-top: 12px;
-   }
-   .scene-separator-inner {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-   }
-   .scene-label {
-      font-family: var(--font-mono);
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      white-space: nowrap;
-      flex-shrink: 0;
-   }
-   .scene-line {
-      flex: 1;
-      height: 1px;
-      background: var(--border);
-   }
-   .scene-delete {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      border: 1px solid transparent;
-      background: transparent;
-      color: var(--text-muted);
-      cursor: pointer;
-      opacity: 0;
-      padding: 0;
-      flex-shrink: 0;
-      transition:
-         opacity var(--transition),
-         background var(--transition),
-         color var(--transition),
-         border-color var(--transition);
-   }
-   .scene-separator:hover .scene-delete {
-      opacity: 1;
-   }
-   .scene-delete:hover {
-      background: var(--error-bg);
-      color: var(--error-text);
-      border-color: var(--error-border);
-   }
+   .input-zone { display: flex; flex-direction: column; gap: 8px; padding: 16px 24px 20px; }
+   .current-input { width: 100%; background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 14px; font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); outline: none; transition: border-color var(--transition), background var(--transition), box-shadow var(--transition); }
+   .current-input::placeholder { color: var(--text-placeholder); }
+   .current-input:focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-muted); }
 
-   /* ── Línea de script ── */
-   .script-line {
-      position: relative;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 3px 0;
-      border-radius: var(--radius-sm);
-   }
+   .save-btn { font-size: 10px; padding: 5px 14px; position: relative; justify-content: center; transition: background var(--transition), color var(--transition), border-color var(--transition), box-shadow var(--transition); }
+   .save-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; white-space: nowrap; visibility: hidden; }
+   .save-label-icon { gap: 5px; }
+   .save-label-active { visibility: visible; }
+   .save-btn::before { content: "Error al guardar"; display: block; visibility: hidden; font-size: 10px; font-family: var(--font-mono); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; pointer-events: none; }
+   .save-btn-idle { background: var(--accent); color: #fff; border-color: var(--accent); }
+   .save-btn-idle:hover { background: var(--accent-hover); border-color: var(--accent-hover); box-shadow: 0 0 0 3px var(--accent-muted); }
+   .save-btn-saving { background: var(--bg-muted); color: var(--text-secondary); border-color: var(--border); cursor: not-allowed; }
+   .save-btn-success { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
+   .save-btn-error { background: var(--error-bg); color: var(--error-text); border-color: var(--error-border); }
 
-   .insert-scene-btn {
-      position: absolute;
-      top: -1px;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-family: var(--font-mono);
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 99px;
-      padding: 2px 8px;
-      cursor: pointer;
-      opacity: 0;
-      pointer-events: none;
-      white-space: nowrap;
-      transition:
-         opacity var(--transition),
-         color var(--transition),
-         border-color var(--transition),
-         background var(--transition);
-      z-index: 2;
-   }
-   .script-line:hover .insert-scene-btn {
-      opacity: 1;
-      pointer-events: auto;
-   }
-   .insert-scene-btn:hover {
-      color: var(--accent-text);
-      border-color: var(--accent);
-      background: var(--accent-muted);
-   }
+   @keyframes spin { to { transform: rotate(360deg); } }
+   .spin { animation: spin 0.8s linear infinite; }
 
-   .context-line {
-      margin: 2px 0;
-   }
-   .thought-line {
-      margin: 1px 0;
-   }
-   .narration-line {
-      margin: 1px 0;
-   }
+   .dialog-title { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+   .dialog-body { font-size: 13px; color: var(--text-secondary); margin-bottom: 24px; line-height: 1.5; }
+   .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
-   /* ── Labels ── */
-   .line-character {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      width: var(--label-w, 72px);
-      min-width: var(--label-w, 72px);
-      text-align: right;
-      flex-shrink: 0;
-      word-break: break-word;
-      line-height: 1.3;
-   }
+   :global(.select-rect) { position: fixed; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); pointer-events: none; z-index: 100; border-radius: 2px; }
 
-   .context-label {
-      color: var(--text-muted) !important;
-      font-style: italic;
-      opacity: 0.7;
-   }
-   .thought-label {
-      color: var(--type-thought) !important;
-      font-style: italic;
-   }
-   .narration-label {
-      color: var(--type-narration) !important;
-   }
-
-   /* ── Inputs ── */
-   .line-input {
-      flex: 1;
-      background: transparent;
-      border: 1px solid transparent;
-      border-radius: var(--radius-sm);
-      padding: 7px 10px;
-      font-family: var(--font-mono);
-      font-size: 13px;
-      color: var(--text-primary);
-      outline: none;
-      transition:
-         background var(--transition),
-         border-color var(--transition);
-   }
-   .line-input:hover {
-      background: var(--bg-subtle);
-      border-color: var(--border);
-   }
-   .line-input:focus {
-      background: var(--surface);
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-muted);
-   }
-
-   .context-input {
-      font-style: italic;
-      color: var(--text-secondary) !important;
-   }
-   .context-input:focus {
-      border-color: var(--border-strong) !important;
-      box-shadow: none !important;
-   }
-
-   .thought-input {
-      font-style: italic;
-      color: color-mix(in srgb, var(--type-thought) 80%, var(--text-primary));
-   }
-
-   .narration-input {
-      font-style: italic;
-      color: color-mix(in srgb, var(--type-narration) 80%, var(--text-primary));
-      letter-spacing: 0.01em;
-   }
-
-   .line-delete {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 28px;
-      height: 28px;
-      border-radius: var(--radius-sm);
-      border: none;
-      background: transparent;
-      color: var(--text-muted);
-      cursor: pointer;
-      opacity: 0;
-      transition:
-         opacity var(--transition),
-         background var(--transition),
-         color var(--transition);
-      flex-shrink: 0;
-   }
-   .script-line:hover .line-delete {
-      opacity: 1;
-   }
-   .line-delete:hover {
-      background: var(--error-bg);
-      color: var(--error-text);
-   }
-
-   /* ── Modo selección ── */
-   .select-mode-line {
-      cursor: pointer;
-      user-select: none;
-      border-radius: var(--radius-sm);
-      transition: background var(--transition);
-   }
-   .select-mode-line .line-input {
-      pointer-events: none;
-   }
-   .select-mode-line .insert-scene-btn {
-      pointer-events: none;
-   }
-   .select-mode-line .line-character {
-      pointer-events: none;
-   }
-   .select-mode-line:hover {
-      background: var(--bg-muted);
-   }
-   .line-selected {
-      background: color-mix(in srgb, var(--error-text) 10%, transparent) !important;
-      border-radius: var(--radius-sm);
-   }
-   .line-selected .line-character {
-      color: var(--error-text) !important;
-      opacity: 1 !important;
-   }
-   .line-selected .line-input {
-      color: var(--error-text) !important;
-   }
-
-   .delete-batch-btn {
-      background: var(--error-text);
-      color: #fff;
-      border-color: var(--error-text);
-      min-width: 114px;
-      justify-content: center;
-   }
-   .delete-batch-btn:hover:not(:disabled) {
-      opacity: 0.85;
-   }
-   .delete-batch-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-   }
-
-   /* ── Input zone ── */
-   .input-zone {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      padding: 16px 24px 20px;
-   }
-
-   .current-input {
-      width: 100%;
-      background: var(--bg-subtle);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 10px 14px;
-      font-family: var(--font-mono);
-      font-size: 13px;
-      color: var(--text-primary);
-      outline: none;
-      transition:
-         border-color var(--transition),
-         background var(--transition),
-         box-shadow var(--transition);
-   }
-   .current-input::placeholder {
-      color: var(--text-placeholder);
-   }
-   .current-input:focus {
-      border-color: var(--accent);
-      background: var(--surface);
-      box-shadow: 0 0 0 3px var(--accent-muted);
-   }
-
-   .actions-divider {
-      width: 1px;
-      height: 20px;
-      background: var(--border);
-      margin: 0 2px;
-   }
-
-   .save-btn {
-      font-size: 10px;
-      padding: 5px 14px;
-      position: relative;
-      justify-content: center;
-      transition:
-         background var(--transition),
-         color var(--transition),
-         border-color var(--transition),
-         box-shadow var(--transition);
-   }
-   .save-label {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      white-space: nowrap;
-      visibility: hidden;
-   }
-   .save-label-icon {
-      gap: 5px;
-   }
-   .save-label-active {
-      visibility: visible;
-   }
-   .save-btn::before {
-      content: "Error al guardar";
-      display: block;
-      visibility: hidden;
-      font-size: 10px;
-      font-family: var(--font-mono);
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      white-space: nowrap;
-      pointer-events: none;
-   }
-   .save-btn-idle {
-      background: var(--accent);
-      color: #fff;
-      border-color: var(--accent);
-   }
-   .save-btn-idle:hover {
-      background: var(--accent-hover);
-      border-color: var(--accent-hover);
-      box-shadow: 0 0 0 3px var(--accent-muted);
-   }
-   .save-btn-saving {
-      background: var(--bg-muted);
-      color: var(--text-secondary);
-      border-color: var(--border);
-      cursor: not-allowed;
-   }
-   .save-btn-success {
-      background: var(--success-bg);
-      color: var(--success-text);
-      border-color: var(--success-border);
-   }
-   .save-btn-error {
-      background: var(--error-bg);
-      color: var(--error-text);
-      border-color: var(--error-border);
-   }
-
-   @keyframes spin {
-      to {
-         transform: rotate(360deg);
-      }
-   }
-   .spin {
-      animation: spin 0.8s linear infinite;
-   }
-
-   .dialog-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin-bottom: 8px;
-   }
-   .dialog-body {
-      font-size: 13px;
-      color: var(--text-secondary);
-      margin-bottom: 24px;
-      line-height: 1.5;
-   }
-   .dialog-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-   }
-
-   /* ── Rectángulo de selección ── */
-   :global(.select-rect) {
-      position: fixed;
-      border: 1px solid var(--accent);
-      background: color-mix(in srgb, var(--accent) 10%, transparent);
-      pointer-events: none;
-      z-index: 100;
-      border-radius: 2px;
-   }
-
-   .btn-danger {
-      background: var(--error-text);
-      color: #fff;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      padding: 7px 16px;
-      border-radius: var(--radius-md);
-      border: none;
-      cursor: pointer;
-      transition: opacity var(--transition);
-   }
-   .btn-danger:hover {
-      opacity: 0.85;
-   }
+   .btn-danger { background: var(--error-text); color: #fff; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 7px 16px; border-radius: var(--radius-md); border: none; cursor: pointer; transition: opacity var(--transition); }
+   .btn-danger:hover { opacity: 0.85; }
 </style>
