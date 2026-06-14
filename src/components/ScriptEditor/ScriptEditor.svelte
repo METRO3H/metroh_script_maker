@@ -3,6 +3,7 @@
    import { tick, untrack } from "svelte";
    import CharacterMenu from "./CharacterMenu.svelte";
    import ScriptOnboarding from "./ScriptOnboarding.svelte";
+   import { char_color, export_txt, export_json, TYPE_ICONS } from "@lib/script.utils";
 
    let { initialScript = null } = $props();
 
@@ -11,17 +12,9 @@
       const chars = (script.characters ?? []).map((c, i) => ({ name: c.name, id: i + 1 }));
       const char_index = Object.fromEntries(chars.map((c, i) => [c.name, i]));
       const lines = (script.lines ?? []).map((l) => {
-         if (l.line_type === "scene") {
-            return { is_scene: true, scene_number: l.scene_number };
-         }
-         if (l.line_type === "context") {
-            return { is_context: true, character_index: -1, text: l.content };
-         }
-         return {
-            character_index: char_index[l.character_name] ?? 0,
-            text: l.content,
-            line_type: l.line_type ?? "dialogue",
-         };
+         if (l.line_type === "scene") return { is_scene: true, scene_number: l.scene_number };
+         if (l.line_type === "context") return { is_context: true, character_index: -1, text: l.content };
+         return { character_index: char_index[l.character_name] ?? 0, text: l.content, line_type: l.line_type ?? "dialogue" };
       });
       return { id: script.id, title: script.name, characters: chars, lines };
    }
@@ -73,63 +66,37 @@
       return `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
    });
 
-   function enter_select_mode(index) {
-      select_mode = true;
-      selected = new Set([index]);
-   }
-
-   function exit_select_mode() {
-      select_mode = false;
-      selected = new Set();
-      rect_active = false;
-      rect_pending = false;
-   }
-
+   function enter_select_mode(index) { select_mode = true; selected = new Set([index]); }
+   function exit_select_mode() { select_mode = false; selected = new Set(); rect_active = false; rect_pending = false; }
    function toggle_select(index) {
       if (!full_script[index]?.is_scene) {
          const s = new Set(selected);
-         if (s.has(index)) s.delete(index);
-         else s.add(index);
+         if (s.has(index)) s.delete(index); else s.add(index);
          selected = s;
       }
    }
-
-   function start_long_press(index) {
-      long_press_timer = setTimeout(() => {
-         enter_select_mode(index);
-      }, 500);
-   }
-
-   function cancel_long_press() {
-      clearTimeout(long_press_timer);
-   }
+   function start_long_press(index) { long_press_timer = setTimeout(() => enter_select_mode(index), 500); }
+   function cancel_long_press() { clearTimeout(long_press_timer); }
 
    function update_rect_selection() {
       const rx1 = Math.min(rect_start_x, rect_cur_x);
       const rx2 = Math.max(rect_start_x, rect_cur_x);
       const ry1 = Math.min(rect_start_y, rect_cur_y);
       const ry2 = Math.max(rect_start_y, rect_cur_y);
-
       const new_selected = new Set();
       document.querySelectorAll("[data-line-index]").forEach((el) => {
          const idx = parseInt(el.dataset.lineIndex);
          if (isNaN(idx) || full_script[idx]?.is_scene) return;
          const r = el.getBoundingClientRect();
          const threshold = 4;
-         if (r.bottom >= ry1 - threshold && r.top <= ry2 + threshold && r.right >= rx1 && r.left <= rx2) {
-            new_selected.add(idx);
-         }
+         if (r.bottom >= ry1 - threshold && r.top <= ry2 + threshold && r.right >= rx1 && r.left <= rx2) new_selected.add(idx);
       });
       selected = new_selected;
    }
 
    function on_mouseup() {
       rect_pending = false;
-      if (rect_active) {
-         rect_active = false;
-         if (selected.size === 0 && !select_mode) return;
-         select_mode = true;
-      }
+      if (rect_active) { rect_active = false; if (selected.size === 0 && !select_mode) return; select_mode = true; }
    }
 
    function delete_selected() {
@@ -142,17 +109,13 @@
 
    function insert_scene(at_index) {
       const n = full_script.slice(0, at_index).filter((l) => l.is_scene).length + 1;
-      const after = full_script
-         .slice(at_index)
-         .map((l) => (l.is_scene ? { ...l, scene_number: l.scene_number + 1 } : l));
+      const after = full_script.slice(at_index).map((l) => (l.is_scene ? { ...l, scene_number: l.scene_number + 1 } : l));
       full_script = [...full_script.slice(0, at_index), { is_scene: true, scene_number: n }, ...after];
    }
 
    function delete_scene(index) {
       const before = full_script.slice(0, index);
-      const after = full_script
-         .slice(index + 1)
-         .map((l) => (l.is_scene ? { ...l, scene_number: l.scene_number - 1 } : l));
+      const after = full_script.slice(index + 1).map((l) => (l.is_scene ? { ...l, scene_number: l.scene_number - 1 } : l));
       full_script = [...before, ...after];
    }
 
@@ -160,9 +123,7 @@
       const idx = full_script.findIndex((l) => l.is_scene && l.scene_number === scene_number);
       if (idx === -1) return;
       const el = scene_refs[idx];
-      if (el && lines_area) {
-         el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+      if (el && lines_area) el.scrollIntoView({ behavior: "smooth", block: "start" });
    }
 
    let total_scenes = $derived(full_script.filter((l) => l.is_scene).length);
@@ -180,20 +141,11 @@
          const unknown_id = Date.now();
          const new_chars = [...characters, { name: unknown_name, id: unknown_id }];
          const unknown_index = new_chars.length - 1;
-         full_script = full_script.map((l) =>
-            !l.is_scene && l.character_index === index ? { ...l, character_index: unknown_index } : l,
-         );
+         full_script = full_script.map((l) => !l.is_scene && l.character_index === index ? { ...l, character_index: unknown_index } : l);
          characters = new_chars;
       }
       const next_chars = characters.filter((_, i) => i !== index);
-      full_script = full_script.map((l) =>
-         l.is_scene
-            ? l
-            : {
-                 ...l,
-                 character_index: l.character_index > index ? l.character_index - 1 : l.character_index,
-              },
-      );
+      full_script = full_script.map((l) => l.is_scene ? l : { ...l, character_index: l.character_index > index ? l.character_index - 1 : l.character_index });
       characters = next_chars;
       if (current_character >= next_chars.length) current_character = 0;
    }
@@ -205,47 +157,22 @@
       return Math.min(Math.ceil(longest * CHAR_PX), LABEL_MAX_PX);
    });
 
-   function char_color(index, total) {
-      const n = Math.max(total, 1);
-      const hue = (30 + index * (360 / n)) % 360;
-      const is_dark = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "dark";
-      const l = is_dark ? "65%" : "42%";
-      return `hsl(${hue}, 72%, ${l})`;
-   }
-
-   const TYPE_ICONS = {
-      dialogue: "",
-      thought: "✦ ",
-      narration: "◈ ",
-   };
-
    function save_input() {
       const input = current_input.trim();
       if (!input) return;
       if (current_character === -1) {
          full_script = [...full_script, { is_context: true, character_index: -1, text: input }];
       } else {
-         full_script = [
-            ...full_script,
-            {
-               character_index: current_character,
-               text: input,
-               line_type: current_type,
-            },
-         ];
+         full_script = [...full_script, { character_index: current_character, text: input, line_type: current_type }];
       }
       current_input = "";
    }
 
    function handle_keydown(e) {
-      if (e.code === "Enter" || e.code === "NumpadEnter") {
-         e.preventDefault();
-         save_input();
-      }
+      if (e.code === "Enter" || e.code === "NumpadEnter") { e.preventDefault(); save_input(); }
    }
 
    let char_menu = $state(null);
-
    const TYPES_CYCLE = ["dialogue", "thought", "narration", "context"];
 
    $effect(() => {
@@ -260,74 +187,44 @@
             cancel_delete();
             return;
          }
-
-         if (e.shiftKey && e.code === "Space" && !is_main_input) {
-            e.preventDefault();
-            document.getElementById("script-input")?.focus();
-            return;
-         }
-
-         if (e.shiftKey && e.code === "NumpadAdd") {
-            e.preventDefault();
-            char_menu?.open_add?.();
-            return;
-         }
-
-         if (e.shiftKey && (e.code === "Enter" || e.code === "NumpadEnter")) {
-            e.preventDefault();
-            insert_scene(full_script.length);
-            return;
-         }
-
+         if (e.shiftKey && e.code === "Space" && !is_main_input) { e.preventDefault(); document.getElementById("script-input")?.focus(); return; }
+         if (e.shiftKey && e.code === "NumpadAdd") { e.preventDefault(); char_menu?.open_add?.(); return; }
+         if (e.shiftKey && (e.code === "Enter" || e.code === "NumpadEnter")) { e.preventDefault(); insert_scene(full_script.length); return; }
          if (is_line_input) return;
-
-         if ((e.ctrlKey || e.metaKey) && e.code === "KeyS") {
-            e.preventDefault();
-            save_script();
-            return;
-         }
+         if ((e.ctrlKey || e.metaKey) && e.code === "KeyS") { e.preventDefault(); save_script(); return; }
 
          if (e.shiftKey && e.code === "ArrowUp") {
             e.preventDefault();
             const scenes = full_script.map((l) => (l.is_scene ? l.scene_number : null)).filter((n) => n !== null);
             if (scenes.length === 0) return;
             const active = current_scene_number();
-            const prev = [...scenes].reverse().find((n) => n < active);
-            scroll_to_scene(prev ?? scenes[scenes.length - 1]);
+            scroll_to_scene([...scenes].reverse().find((n) => n < active) ?? scenes[scenes.length - 1]);
             return;
          }
-
          if (e.shiftKey && e.code === "ArrowDown") {
             e.preventDefault();
             const scenes = full_script.map((l) => (l.is_scene ? l.scene_number : null)).filter((n) => n !== null);
             if (scenes.length === 0) return;
             const active = current_scene_number();
-            const next = scenes.find((n) => n > active);
-            scroll_to_scene(next ?? scenes[0]);
+            scroll_to_scene(scenes.find((n) => n > active) ?? scenes[0]);
             return;
          }
-
          if (e.shiftKey && e.code === "ArrowRight") {
             e.preventDefault();
             if (characters.length === 0) return;
-            if (current_character === -1) { current_character = 0; }
-            else { current_character = (current_character + 1) % characters.length; }
+            current_character = current_character === -1 ? 0 : (current_character + 1) % characters.length;
             return;
          }
-
          if (e.shiftKey && e.code === "ArrowLeft") {
             e.preventDefault();
             if (characters.length === 0) return;
-            if (current_character === -1) { current_character = characters.length - 1; }
-            else { current_character = (current_character - 1 + characters.length) % characters.length; }
+            current_character = current_character === -1 ? characters.length - 1 : (current_character - 1 + characters.length) % characters.length;
             return;
          }
-
          if (e.shiftKey && e.code === "IntlBackslash") {
             e.preventDefault();
             const current_in_cycle = current_character === -1 ? "context" : current_type;
-            const idx = TYPES_CYCLE.indexOf(current_in_cycle);
-            const next = TYPES_CYCLE[(idx + 1) % TYPES_CYCLE.length];
+            const next = TYPES_CYCLE[(TYPES_CYCLE.indexOf(current_in_cycle) + 1) % TYPES_CYCLE.length];
             if (next === "context") { current_character = -1; }
             else { if (current_character === -1) current_character = 0; current_type = next; }
             return;
@@ -335,35 +232,25 @@
       }
 
       function on_mouseup_global() { on_mouseup(); }
-
       function on_mousemove_global(e) {
          if (!rect_pending && !rect_active) return;
-         rect_cur_x = e.clientX;
-         rect_cur_y = e.clientY;
+         rect_cur_x = e.clientX; rect_cur_y = e.clientY;
          if (rect_pending) {
             const dx = Math.abs(rect_cur_x - rect_start_x);
             const dy = Math.abs(rect_cur_y - rect_start_y);
-            if (dx > RECT_THRESHOLD || dy > RECT_THRESHOLD) {
-               rect_pending = false;
-               rect_active = true;
-               cancel_long_press();
-            } else { return; }
+            if (dx > RECT_THRESHOLD || dy > RECT_THRESHOLD) { rect_pending = false; rect_active = true; cancel_long_press(); }
+            else return;
          }
          update_rect_selection();
       }
-
       function on_mousedown_global(e) {
          if (e.button !== 0) return;
          const tag = e.target.tagName;
          if (tag === "INPUT" || tag === "BUTTON" || tag === "A" || e.target.closest("dialog")) return;
          if (select_mode && e.target.closest("[data-line-index]")) return;
-
-         rect_pending = true;
-         rect_active = false;
-         rect_start_x = e.clientX;
-         rect_start_y = e.clientY;
-         rect_cur_x = e.clientX;
-         rect_cur_y = e.clientY;
+         rect_pending = true; rect_active = false;
+         rect_start_x = e.clientX; rect_start_y = e.clientY;
+         rect_cur_x = e.clientX; rect_cur_y = e.clientY;
          selected = new Set();
       }
 
@@ -379,36 +266,18 @@
       };
    });
 
-   function update_input(new_text, i) {
-      full_script = full_script.map((s, index) => (index === i ? { ...s, text: new_text } : s));
-   }
-
-   function confirm_delete(index) {
-      if (select_mode) return;
-      full_script = full_script.filter((_, i) => i !== index);
-   }
-   function cancel_delete() {
-      pending_delete_index = null;
-      delete_dialog?.close();
-   }
+   function update_input(new_text, i) { full_script = full_script.map((s, index) => (index === i ? { ...s, text: new_text } : s)); }
+   function confirm_delete(index) { if (select_mode) return; full_script = full_script.filter((_, i) => i !== index); }
+   function cancel_delete() { pending_delete_index = null; delete_dialog?.close(); }
    function execute_delete() {
       if (pending_delete_index === null) return;
-      if (pending_delete_index === -1) {
-         const to_delete = selected;
-         full_script = full_script.filter((_, i) => !to_delete.has(i));
-         exit_select_mode();
-      } else {
-         full_script = full_script.filter((_, i) => i !== pending_delete_index);
-      }
+      if (pending_delete_index === -1) { full_script = full_script.filter((_, i) => !selected.has(i)); exit_select_mode(); }
+      else { full_script = full_script.filter((_, i) => i !== pending_delete_index); }
       pending_delete_index = null;
       delete_dialog?.close();
    }
 
-   function show_toast(status) {
-      save_status = status;
-      clearTimeout(toast_timeout);
-      toast_timeout = setTimeout(() => (save_status = null), 3000);
-   }
+   function show_toast(status) { save_status = status; clearTimeout(toast_timeout); toast_timeout = setTimeout(() => (save_status = null), 3000); }
 
    async function save_script() {
       if (!script_title.trim()) { show_toast("no_title"); return; }
@@ -432,54 +301,15 @@
       const { script_id: returned_id } = await res.json();
       const is_new = script_id === null;
       script_id = returned_id;
-      if (is_new) {
-         history.pushState({}, "", `/scripts/editor?id=${returned_id}`);
-      }
+      if (is_new) history.pushState({}, "", `/scripts/editor?id=${returned_id}`);
       show_toast("success");
-   }
-
-   function export_txt() {
-      const header = `${script_title.toUpperCase()}\n${"─".repeat(48)}\n\n`;
-      const content = full_script
-         .map((l) => {
-            if (l.is_scene) return `\n── ESCENA ${l.scene_number} ${"─".repeat(30)}\n`;
-            if (l.is_context) return `[${l.text}]`;
-            const prefix = TYPE_ICONS[l.line_type ?? "dialogue"];
-            return `${characters[l.character_index].name.toUpperCase()}\n   ${prefix}${l.text}`;
-         })
-         .join("\n");
-      download_file(header + content, `${script_title || "script"}.txt`, "text/plain");
-   }
-
-   function export_json() {
-      const scenes = [];
-      let current_scene = null;
-      for (const line of full_script) {
-         if (line.is_scene) { current_scene = []; scenes.push(current_scene); }
-         else if (current_scene !== null) {
-            if (line.is_context) { current_scene.push({ type: "context", content: line.text }); }
-            else { current_scene.push({ type: line.line_type ?? "dialogue", character: characters[line.character_index].name, content: line.text }); }
-         }
-      }
-      download_file(JSON.stringify({ id: script_id, name: script_title, characters: characters.map((c) => c.name), scenes }, null, 2), `${script_title || "script"}.json`, "application/json");
-   }
-
-   function download_file(content, filename, mime) {
-      const a = Object.assign(document.createElement("a"), {
-         href: URL.createObjectURL(new Blob([content], { type: mime })),
-         download: filename,
-      });
-      a.click();
-      URL.revokeObjectURL(a.href);
    }
 
    let is_mounted = $state(false);
    $effect(() => {
       const len = full_script.length;
       if (!is_mounted) return;
-      tick().then(() => {
-         if (lines_area) lines_area.scrollTo({ top: lines_area.scrollHeight, behavior: "smooth" });
-      });
+      tick().then(() => { if (lines_area) lines_area.scrollTo({ top: lines_area.scrollHeight, behavior: "smooth" }); });
    });
    $effect(() => { is_mounted = true; });
 </script>
@@ -497,16 +327,14 @@
       </div>
 
       <div class="editor-actions">
-         <button onclick={export_txt} class="btn btn-ghost btn-sm" title="Exportar como .txt">
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+         <button onclick={() => export_txt(full_script, characters, script_title)} class="btn btn-ghost btn-sm" title="Exportar como .txt">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
             </svg>TXT
          </button>
-         <button onclick={export_json} class="btn btn-ghost btn-sm" title="Exportar como .json">
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+         <button onclick={() => export_json(full_script, characters, script_title, script_id)} class="btn btn-ghost btn-sm" title="Exportar como .json">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                <polyline points="14 2 14 8 20 8"/>
             </svg>JSON
@@ -514,14 +342,12 @@
 
          {#if select_mode}
             <button class="btn btn-ghost btn-sm" onclick={exit_select_mode} title="Cancelar selección (Esc)">
-               <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+               <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M18 6 6 18M6 6l12 12"/>
                </svg>Cancelar
             </button>
             <button class="btn btn-sm delete-batch-btn" onclick={delete_selected} disabled={selected.size === 0}>
-               <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+               <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
                   <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
                </svg>
@@ -539,14 +365,12 @@
             >
                <span class="save-label" class:save-label-active={save_status === null}>Guardar</span>
                <span class="save-label save-label-icon" class:save-label-active={save_status === "saving"}>
-                  <svg class="spin" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <svg class="spin" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
                   </svg><span>Guardando</span>
                </span>
                <span class="save-label save-label-icon" class:save-label-active={save_status === "success"}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                      <polyline points="20 6 9 17 4 12"/>
                   </svg><span>Guardado</span>
                </span>
@@ -574,10 +398,8 @@
                <div class="scene-separator-inner">
                   <span class="scene-label">Escena {line.scene_number}</span>
                   <div class="scene-line"></div>
-                  <button class="scene-delete" onclick={() => delete_scene(index)}
-                     aria-label="Eliminar escena {line.scene_number}" title="Eliminar escena">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <button class="scene-delete" onclick={() => delete_scene(index)} aria-label="Eliminar escena {line.scene_number}" title="Eliminar escena">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M18 6 6 18M6 6l12 12"/>
                      </svg>
                   </button>
@@ -598,10 +420,8 @@
                aria-selected={selected.has(index)}
                data-line-index={index}
             >
-               <button class="insert-scene-btn" onclick={() => insert_scene(index)}
-                  title="Insertar escena aquí" aria-label="Insertar escena antes de esta línea" tabindex="-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+               <button class="insert-scene-btn" onclick={() => insert_scene(index)} title="Insertar escena aquí" aria-label="Insertar escena antes de esta línea" tabindex="-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                      <path d="M5 12h14"/><path d="M12 5v14"/>
                   </svg>escena
                </button>
@@ -611,8 +431,7 @@
                   class:context-label={line.is_context}
                   class:thought-label={line.line_type === "thought"}
                   class:narration-label={line.line_type === "narration"}
-                  style={line.is_context || line.line_type === "narration" || line.line_type === "thought"
-                     ? "" : `color: ${char_color(line.character_index, characters.length)}`}
+                  style={line.is_context || line.line_type === "narration" || line.line_type === "thought" ? "" : `color: ${char_color(line.character_index, characters.length)}`}
                >
                   {#if line.is_context}contexto
                   {:else if line.line_type === "thought"}✦ {characters[line.character_index]?.name ?? "?"}
@@ -635,11 +454,8 @@
                   tabindex={select_mode ? -1 : 0}
                />
                {#if !select_mode}
-                  <button class="line-delete" onclick={() => confirm_delete(index)}
-                     aria-label="Eliminar línea" tabindex="-1"
-                     title="Click para eliminar · Mantener para selección múltiple">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <button class="line-delete" onclick={() => confirm_delete(index)} aria-label="Eliminar línea" tabindex="-1" title="Click para eliminar · Mantener para selección múltiple">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
                         <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
                      </svg>
@@ -693,12 +509,8 @@
 </dialog>
 
 <style>
-   :global(:root) {
-      --color-b: #0891b2; --color-c: #059669; --color-d: #d97706; --color-e: #db2777;
-   }
-   :global([data-theme="dark"]) {
-      --color-b: #22d3ee; --color-c: #34d399; --color-d: #fbbf24; --color-e: #f472b6;
-   }
+   :global(:root) { --color-b: #0891b2; --color-c: #059669; --color-d: #d97706; --color-e: #db2777; }
+   :global([data-theme="dark"]) { --color-b: #22d3ee; --color-c: #34d399; --color-d: #fbbf24; --color-e: #f472b6; }
 
    .editor { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
    .editor-header { display: flex; justify-content: space-between; align-items: flex-end; padding: 20px 24px 16px; gap: 16px; }
@@ -787,7 +599,6 @@
    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
    :global(.select-rect) { position: fixed; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); pointer-events: none; z-index: 100; border-radius: 2px; }
-
    .btn-danger { background: var(--error-text); color: #fff; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 7px 16px; border-radius: var(--radius-md); border: none; cursor: pointer; transition: opacity var(--transition); }
    .btn-danger:hover { opacity: 0.85; }
 </style>
