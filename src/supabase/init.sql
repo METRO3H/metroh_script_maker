@@ -153,53 +153,36 @@ BEGIN
     END IF;
 
     UPDATE scripts SET name = p_script_name, updated_at = NOW() WHERE id = v_script_id;
+    DELETE FROM script_lines WHERE script_id = v_script_id;
     DELETE FROM characters WHERE script_id = v_script_id;
   END IF;
 
-  -- Insertar personajes y construir mapa nombre → id
   FOREACH v_character IN ARRAY p_characters LOOP
     INSERT INTO characters (script_id, name)
     VALUES (v_script_id, v_character)
     RETURNING id INTO v_character_id;
-
     v_character_map := v_character_map || jsonb_build_object(v_character, v_character_id);
   END LOOP;
 
-  -- Insertar todas las líneas
   FOR v_line IN SELECT * FROM jsonb_array_elements(p_lines) LOOP
     v_line_type      := v_line->>'line_type';
     v_character_name := v_line->>'character_name';
 
     INSERT INTO script_lines (
-      script_id,
-      character_id,
-      line_number,
-      line_type,
-      content,
-      scene_number
+      script_id, character_id, line_number, line_type, content, scene_number
     ) VALUES (
       v_script_id,
-      CASE
-        WHEN v_character_name IS NOT NULL
-        THEN (v_character_map ->> v_character_name)::UUID
-        ELSE NULL
-      END,
+      CASE WHEN v_character_name IS NOT NULL THEN (v_character_map ->> v_character_name)::UUID ELSE NULL END,
       (v_line->>'line_number')::INTEGER,
       v_line_type,
       v_line->>'content',
-      CASE
-        WHEN v_line_type = 'scene'
-        THEN (v_line->>'scene_number')::INTEGER
-        ELSE NULL
-      END
+      CASE WHEN v_line_type = 'scene' THEN (v_line->>'scene_number')::INTEGER ELSE NULL END
     );
   END LOOP;
 
   RETURN v_script_id;
 END;
 $$;
-
-
 -- ─────────────────────────────────────────────
 -- get_user_scripts
 -- ─────────────────────────────────────────────
