@@ -1,46 +1,31 @@
 <script>
   // ScriptHeader.svelte — título + acciones del editor
+  import Icon from "@components/ui/Icon.svelte";
+
   let { store } = $props();
 </script>
 
 <div class="editor-header">
   <div class="title-block">
     <label for="script-title" class="field-label">Título</label>
-    <input
-      id="script-title"
-      type="text"
-      class="title-input"
-      placeholder="Sin título..."
-      bind:value={store.script_title}
-      autocomplete="off"
-    />
+    <input id="script-title" type="text" class="title-input" placeholder="Sin título..."
+      bind:value={store.script_title} autocomplete="off" />
   </div>
 
   <div class="editor-actions">
     <button onclick={store.do_export_txt} class="btn btn-ghost btn-sm" title="Exportar como .txt">
-      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-      </svg>TXT
+      <Icon name="file-text" size={13} />{" "}TXT
     </button>
     <button onclick={store.do_export_json} class="btn btn-ghost btn-sm" title="Exportar como .json">
-      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <polyline points="14 2 14 8 20 8"/>
-      </svg>JSON
+      <Icon name="file" size={13} />{" "}JSON
     </button>
 
     {#if store.select_mode}
       <button class="btn btn-ghost btn-sm" onclick={store.exit_select_mode} title="Cancelar selección (Esc)">
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18 6 6 18M6 6l12 12"/>
-        </svg>Cancelar
+        <Icon name="x" size={11} stroke_width={2.5} />Cancelar
       </button>
       <button class="btn btn-sm delete-batch-btn" onclick={() => store.request_batch_delete()} disabled={store.selected.size === 0}>
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
-          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-        </svg>
+        <Icon name="trash" size={11} stroke_width={2.5} />
         Eliminar {store.selected.size > 0 ? `(${store.selected.size})` : ""}
       </button>
     {:else}
@@ -55,14 +40,10 @@
       >
         <span class="save-label" class:save-label-active={store.save_status === null}>Guardar</span>
         <span class="save-label save-label-icon" class:save-label-active={store.save_status === "saving"}>
-          <svg class="spin" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-          </svg><span>Guardando</span>
+          <Icon name="spinner" size={11} stroke_width={2.5} /><span>Guardando</span>
         </span>
         <span class="save-label save-label-icon" class:save-label-active={store.save_status === "success"}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg><span>Guardado</span>
+          <Icon name="check" size={11} stroke_width={2.5} /><span>Guardado</span>
         </span>
         <span class="save-label" class:save-label-active={store.save_status === "error"}>Error al guardar</span>
         <span class="save-label" class:save-label-active={store.save_status === "no_title"}>Falta el título</span>
@@ -96,7 +77,4 @@
   .delete-batch-btn { background: var(--error-text); color: #fff; border-color: var(--error-text); min-width: 114px; justify-content: center; }
   .delete-batch-btn:hover:not(:disabled) { opacity: 0.85; }
   .delete-batch-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .spin { animation: spin 0.8s linear infinite; }
 </style>

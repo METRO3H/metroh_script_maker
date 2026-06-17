@@ -1,6 +1,7 @@
 <script>
-  // ScriptLines.svelte — área scrolleable de líneas del script
+  // ScriptLines.svelte — área scrolleable de líneas
   import { char_color } from "@lib/script.utils";
+  import Icon from "@components/ui/Icon.svelte";
 
   let { store, scene_refs = $bindable({}) } = $props();
 </script>
@@ -21,9 +22,7 @@
           <div class="scene-line"></div>
           <button class="scene-delete" onclick={() => store.delete_scene(index)}
             aria-label="Eliminar escena {line.scene_number}" title="Eliminar escena">
-            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 6 6 18M6 6l12 12"/>
-            </svg>
+            <Icon name="x" size={10} stroke_width={3} />
           </button>
         </div>
       </div>
@@ -44,9 +43,7 @@
       >
         <button class="insert-scene-btn" onclick={() => store.insert_scene(index)}
           title="Insertar escena aquí" aria-label="Insertar escena antes de esta línea" tabindex="-1">
-          <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 12h14"/><path d="M12 5v14"/>
-          </svg>escena
+          <Icon name="plus" size={9} stroke_width={2.5} />escena
         </button>
 
         <span
@@ -82,10 +79,7 @@
           <button class="line-delete" onclick={() => store.delete_line(index)}
             aria-label="Eliminar línea" tabindex="-1"
             title="Click para eliminar · Mantener para selección múltiple">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
-              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-            </svg>
+            <Icon name="trash" size={14} />
           </button>
         {/if}
       </div>

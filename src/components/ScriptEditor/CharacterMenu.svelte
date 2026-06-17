@@ -1,6 +1,7 @@
 <script>
    // CharacterMenu.svelte
    import { char_color } from "@lib/script.utils";
+   import Icon from "@components/ui/Icon.svelte";
 
    let {
       characters = $bindable([]),
@@ -36,10 +37,8 @@
    let add_dialog = $state(null);
    let new_character = $state("");
    let input_el = $state(null);
-
    let delete_dialog = $state(null);
    let pending_delete_index = $state(null);
-
    let added_name = $state(null);
    let added_timeout = null;
 
@@ -101,23 +100,16 @@
             title="Cambiar tipo de línea"
          >
             {active_type_label}
-            <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
-               class:chevron-up={type_popover_open}>
-               <path d="M6 9l6 6 6-6"/>
-            </svg>
+            <span class:chevron-up={type_popover_open}>
+               <Icon name="chevron-down" size={9} stroke_width={2.5} />
+            </span>
          </button>
 
          {#if type_popover_open}
             <div class="type-popover">
                <button class="type-popover-item" class:type-popover-item-active={is_context}
                   onclick={() => { current_character = -1; type_popover_open = false; }}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                     <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/>
-                     <path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
-                     <rect x="7" y="7" width="10" height="10" rx="1"/>
-                  </svg>
+                  <Icon name="context" size={11} stroke_width={2.5} />
                   Contexto
                </button>
                <div class="popover-divider"></div>
@@ -150,28 +142,19 @@
             {#if characters.length > 1}
                <button class="char-pill-delete" onclick={(e) => { e.stopPropagation(); open_delete(index); }}
                   aria-label={`Eliminar ${character.name}`} title={`Eliminar ${character.name}`}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                     <path d="M18 6 6 18M6 6l12 12"/>
-                  </svg>
+                  <Icon name="x" size={10} stroke_width={3} />
                </button>
             {/if}
          </div>
       {/each}
 
       <button class="char-add-btn" onclick={open_add} aria-label="Agregar nuevo personaje" title="Nuevo personaje">
-         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 12h14"/><path d="M12 5v14"/>
-         </svg>
+         <Icon name="plus" size={14} stroke_width={2.5} />
       </button>
 
       {#if added_name}
          <span class="added-toast">
-            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-               <polyline points="20 6 9 17 4 12"/>
-            </svg>
+            <Icon name="check" size={11} stroke_width={2.5} />
             {added_name} agregado
          </span>
       {/if}
@@ -214,10 +197,7 @@
    <div class="delete-options">
       <button class="delete-option" onclick={() => confirm_delete("keep_as_unknown")}>
          <div class="delete-option-icon delete-option-icon-keep">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-            </svg>
+            <Icon name="user" size={16} />
          </div>
          <div class="delete-option-text">
             <span class="delete-option-title">Conservar diálogos</span>
@@ -226,11 +206,7 @@
       </button>
       <button class="delete-option delete-option-danger" onclick={() => confirm_delete("remove_lines")}>
          <div class="delete-option-icon delete-option-icon-remove">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-               <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
-               <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-            </svg>
+            <Icon name="trash" size={16} />
          </div>
          <div class="delete-option-text">
             <span class="delete-option-title">Eliminar diálogos</span>
@@ -256,7 +232,7 @@
    .type-active-btn:hover { background: color-mix(in srgb, var(--type-color, var(--border-strong)) 12%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--type-color, var(--border-strong)) 20%, transparent); }
    .type-active-btn-context { border-style: dashed; border-color: var(--border-strong); color: var(--text-muted); }
    .type-active-btn-context:hover { border-style: solid; color: var(--text-primary); background: var(--bg-muted); box-shadow: none; }
-   .chevron-up { transform: rotate(180deg); }
+   .chevron-up { display: inline-flex; transform: rotate(180deg); }
 
    .type-popover { position: absolute; bottom: calc(100% + 8px); left: 0; min-width: 160px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-md); padding: 4px; z-index: 50; animation: popover-in 0.15s cubic-bezier(0.34, 1.4, 0.64, 1); }
    @keyframes popover-in { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
