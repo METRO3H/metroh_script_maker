@@ -402,3 +402,7 @@ This separation makes the AI feature optional and keeps the core editor usable w
 - iOS is currently excluded from AI autocomplete support.
 - The configured model is intentionally small; suggestion quality depends on the capabilities of the local model.
 - The current editor has one active AI-powered input, so the predictor store does not implement a generation queue for multiple simultaneous inputs.
+
+## Author
+
+[METRO3H](https://github.com/METRO3H)
