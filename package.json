@@ -11,6 +11,7 @@
   "dependencies": {
     "@astrojs/svelte": "^8.0.1",
     "@astrojs/vercel": "^10.0.7",
+    "@mlc-ai/web-llm": "^0.2.85",
     "@supabase/supabase-js": "^2.98.0",
     "@tailwindcss/vite": "^4.2.1",
     "astro": "^6.0.5",

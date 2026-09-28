@@ -1,7 +1,7 @@
+
 // src/pages/api/script/delete.ts
 import type { APIRoute } from "astro";
 import { z } from "zod";
-import { supabase } from "@supabase/supabase";
 import { require_auth } from "@utils/auth";
 
 const DeleteScriptSchema = z.object({
@@ -24,7 +24,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     return new Response("script_id inválido", { status: 400 });
   }
 
-  const { error } = await supabase.rpc("delete_script", {
+  const { error } = await auth.supabase.rpc("delete_script", {
     p_script_id: result.data.script_id,
   });
 
@@ -32,3 +32,4 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
   return new Response(null, { status: 204 });
 };
+

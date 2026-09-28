@@ -1,5 +1,6 @@
+
 import type { APIRoute } from "astro";
-import { supabase } from "@supabase/supabase";
+import { create_supabase_client } from "@supabase/supabase";
 
 export const POST: APIRoute = async ({ request, redirect }) => {
   const formData = await request.formData();
@@ -10,12 +11,17 @@ export const POST: APIRoute = async ({ request, redirect }) => {
     return new Response("Email and password are required", { status: 400 });
   }
 
+  // Cliente propio de este request: nunca reutilizar una instancia compartida.
+  const supabase = create_supabase_client();
+
   const { error } = await supabase.auth.signUp({ email, password });
 
   if (error) {
     console.log(error);
-    return new Response(error.message, { status: 500 });
+    return new Response(error.message, { status: 400 });
   }
 
   return redirect("/auth/login");
 };
+
+

@@ -1,7 +1,7 @@
+
 // src/pages/api/script/save.ts
 import type { APIRoute } from "astro";
 import { z } from "zod";
-import { supabase } from "@supabase/supabase";
 import { require_auth } from "@utils/auth";
 
 // ✅ Capa 5 — schema Zod para validar el body
@@ -45,7 +45,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
    const { script_id, script_name, characters, lines } = result.data;
 
-   const { data, error } = await supabase.rpc("upsert_script", {
+   const { data, error } = await auth.supabase.rpc("upsert_script", {
       p_script_id: script_id ?? null,
       p_script_name: script_name,
       p_characters: characters,
@@ -63,3 +63,5 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 export const GET: APIRoute = async () => {
    return new Response("save.ts funciona", { status: 200 });
 };
+
+

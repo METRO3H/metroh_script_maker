@@ -1,3 +1,4 @@
+
 // src/lib/script.utils.ts
 // Utilidades puras del dominio — sin estado, sin efectos secundarios
 
@@ -40,7 +41,7 @@ export function export_txt(lines: ScriptLine[], characters: Character[], title: 
       if (l.is_scene) return `\n── ESCENA ${l.scene_number} ${"─".repeat(30)}\n`;
       if (l.is_context) return `[${l.text}]`;
       const prefix = TYPE_ICONS[l.line_type ?? "dialogue"];
-      return `${characters[l.character_index].name.toUpperCase()}\n   ${prefix}${l.text}`;
+      return `${(characters[l.character_index]?.name ?? "?").toUpperCase()}\n   ${prefix}${l.text}`;
     })
     .join("\n");
   download_file(header + content, `${title || "script"}.txt`, "text/plain");
@@ -60,13 +61,20 @@ export function export_json(
     if (line.is_scene) {
       current_scene = [];
       scenes.push(current_scene);
-    } else if (current_scene !== null) {
+    } else {
+      // Si todavía no hay ninguna escena (por ejemplo, se borró la escena
+      // inicial), no descartar la línea en silencio: se crea un "bloque"
+      // implícito para que ningún contenido se pierda al exportar.
+      if (current_scene === null) {
+        current_scene = [];
+        scenes.push(current_scene);
+      }
       if (line.is_context) {
         current_scene.push({ type: "context", content: line.text });
       } else {
         current_scene.push({
           type: line.line_type ?? "dialogue",
-          character: characters[line.character_index].name,
+          character: characters[line.character_index]?.name ?? "?",
           content: line.text,
         });
       }
@@ -83,3 +91,5 @@ export function export_json(
     "application/json",
   );
 }
+
+

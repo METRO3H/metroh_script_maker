@@ -1,3 +1,4 @@
+
 <script>
    // CharacterMenu.svelte
    import { char_color } from "@lib/script.utils";
@@ -41,14 +42,21 @@
    let pending_delete_index = $state(null);
    let added_name = $state(null);
    let added_timeout = null;
+   let add_error = $state("");
 
-   function open_add() { add_dialog?.showModal(); setTimeout(() => input_el?.focus(), 50); }
-   function close_add() { add_dialog?.close(); new_character = ""; }
+   function is_duplicate_name(name, ignore_index = null) {
+      const normalized = name.toLowerCase();
+      return characters.some((c, i) => i !== ignore_index && c.name.toLowerCase() === normalized);
+   }
+
+   function open_add() { add_error = ""; add_dialog?.showModal(); setTimeout(() => input_el?.focus(), 50); }
+   function close_add() { add_dialog?.close(); new_character = ""; add_error = ""; }
    function handle_add_backdrop(e) { if (e.target === add_dialog) close_add(); }
 
    function add_character() {
       const name = new_character.trim();
       if (!name) return;
+      if (is_duplicate_name(name)) { add_error = "Ya existe un personaje con ese nombre"; return; }
       characters = [...characters, { name, id: Date.now() }];
       added_name = name;
       clearTimeout(added_timeout);
@@ -60,13 +68,15 @@
    let edit_index = $state(null);
    let edit_name = $state("");
    let edit_input_el = $state(null);
+   let edit_error = $state("");
 
-   function open_edit(index) { edit_index = index; edit_name = characters[index].name; edit_dialog?.showModal(); setTimeout(() => edit_input_el?.focus(), 50); }
-   function close_edit() { edit_dialog?.close(); edit_index = null; edit_name = ""; }
+   function open_edit(index) { edit_index = index; edit_name = characters[index].name; edit_error = ""; edit_dialog?.showModal(); setTimeout(() => edit_input_el?.focus(), 50); }
+   function close_edit() { edit_dialog?.close(); edit_index = null; edit_name = ""; edit_error = ""; }
    function handle_edit_backdrop(e) { if (e.target === edit_dialog) close_edit(); }
    function confirm_edit() {
       const name = edit_name.trim();
       if (!name || edit_index === null) return;
+      if (is_duplicate_name(name, edit_index)) { edit_error = "Ya existe un personaje con ese nombre"; return; }
       characters = characters.map((c, i) => (i === edit_index ? { ...c, name } : c));
       close_edit();
    }
@@ -167,12 +177,14 @@
    <div class="dialog-field">
       <label for="char-name" class="dialog-label">Nombre</label>
       <input bind:this={input_el} type="text" id="char-name" bind:value={new_character}
+         oninput={() => { add_error = ""; }}
          placeholder="Ej: María, Detective, Narrador..." class="input-base"
          onkeydown={(e) => { if (e.key === "Enter") add_character(); if (e.key === "Escape") close_add(); }} />
+      {#if add_error}<span class="dialog-error">{add_error}</span>{/if}
    </div>
    <div class="dialog-actions">
       <button onclick={close_add} class="btn btn-ghost">Cancelar</button>
-      <button onclick={add_character} class="btn btn-primary">Agregar</button>
+      <button onclick={add_character} class="btn btn-primary" disabled={!new_character.trim()}>Agregar</button>
    </div>
 </dialog>
 
@@ -182,11 +194,13 @@
    <div class="dialog-field">
       <label for="edit-char-name" class="dialog-label">Nuevo nombre</label>
       <input bind:this={edit_input_el} type="text" id="edit-char-name" bind:value={edit_name} class="input-base"
+         oninput={() => { edit_error = ""; }}
          onkeydown={(e) => { if (e.key === "Enter") confirm_edit(); if (e.key === "Escape") close_edit(); }} />
+      {#if edit_error}<span class="dialog-error">{edit_error}</span>{/if}
    </div>
    <div class="dialog-actions">
       <button onclick={close_edit} class="btn btn-ghost">Cancelar</button>
-      <button onclick={confirm_edit} class="btn btn-primary">Renombrar</button>
+      <button onclick={confirm_edit} class="btn btn-primary" disabled={!edit_name.trim()}>Renombrar</button>
    </div>
 </dialog>
 
@@ -264,6 +278,7 @@
    .dialog-body { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; }
    .dialog-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 24px; }
    .dialog-label { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+   .dialog-error { font-size: 12px; color: var(--error-text); margin-top: 2px; }
    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
    .delete-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
@@ -279,3 +294,5 @@
 
    @keyframes toast-in { from { opacity: 0; transform: translateY(4px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
 </style>
+
+

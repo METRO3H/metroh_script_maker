@@ -1,12 +1,49 @@
+
 <script>
   // ScriptLines.svelte — área scrolleable de líneas
   import { char_color } from "@lib/script.utils";
   import Icon from "@components/ui/Icon.svelte";
 
   let { store, scene_refs = $bindable({}) } = $props();
+
+  const TYPE_BADGE = {
+    dialogue:  { emoji: "💬", label: "diálogo" },
+    thought:   { emoji: "💭", label: "pensamiento" },
+    narration: { emoji: "✍️", label: "narración" },
+    context:   { emoji: "📍", label: "contexto" },
+  };
+
+  // Timer del "mantener presionado" para entrar en modo selección.
+  // Variable local (no window._lp): además de no ensuciar el global,
+  // siempre se cancela el timer anterior antes de programar uno nuevo,
+  // así nunca queda un timer huérfano que dispare enter_select_mode
+  // sobre el índice equivocado.
+  let long_press_timer = null;
+
+  function handle_line_mousedown(index) {
+    if (store.select_mode) return;
+    clearTimeout(long_press_timer);
+    long_press_timer = setTimeout(() => store.enter_select_mode(index), 500);
+  }
+  function handle_line_mouseup(index) {
+    clearTimeout(long_press_timer);
+    if (store.select_mode) store.toggle_select(index);
+  }
+  function handle_line_mouseleave() {
+    clearTimeout(long_press_timer);
+  }
+
+  function handle_line_keydown(e, original_text) {
+    if (e.key === "Enter") {
+      e.currentTarget.blur();
+    } else if (e.key === "Escape") {
+      e.currentTarget.value = original_text;
+      e.currentTarget.blur();
+    }
+  }
 </script>
 
-<div class="lines-area" bind:this={store.lines_area_el} style="--label-w: {store.label_width()}px">
+<div class="lines-area" bind:this={store.lines_area_el} style="--label-w: {store.label_width}px">
   {#if store.full_script.length === 0}
     <div class="empty-state">
       <p class="empty-title">El script está vacío</p>
@@ -34,9 +71,9 @@
         class:narration-line={line.line_type === "narration"}
         class:select-mode-line={store.select_mode}
         class:line-selected={store.selected.has(index)}
-        onmousedown={() => { if (!store.select_mode) { let t = setTimeout(() => store.enter_select_mode(index), 500); window._lp = t; } }}
-        onmouseup={() => { clearTimeout(window._lp); if (store.select_mode) store.toggle_select(index); }}
-        onmouseleave={() => clearTimeout(window._lp)}
+        onmousedown={() => handle_line_mousedown(index)}
+        onmouseup={() => handle_line_mouseup(index)}
+        onmouseleave={handle_line_mouseleave}
         role="option"
         aria-selected={store.selected.has(index)}
         data-line-index={index}
@@ -46,19 +83,30 @@
           <Icon name="plus" size={9} stroke_width={2.5} />escena
         </button>
 
-        <span
-          class="line-character"
-          class:context-label={line.is_context}
-          class:thought-label={line.line_type === "thought"}
-          class:narration-label={line.line_type === "narration"}
-          style={line.is_context || line.line_type === "narration" || line.line_type === "thought" ? "" : `color: ${char_color(line.character_index, store.characters.length)}`}
-        >
-          {#if line.is_context}contexto
-          {:else if line.line_type === "thought"}✦ {store.characters[line.character_index]?.name ?? "?"}
-          {:else if line.line_type === "narration"}◈ {store.characters[line.character_index]?.name ?? "?"}
-          {:else}{store.characters[line.character_index]?.name ?? "?"}
+        <!-- Label + badge -->
+        <div class="line-meta" class:context-meta={line.is_context}>
+          {#if !line.is_context}
+            <span
+              class="line-character"
+              style={`color: ${char_color(line.character_index, store.characters.length)}`}
+            >
+              {store.characters[line.character_index]?.name ?? "?"}
+            </span>
           {/if}
-        </span>
+          <span
+            class="line-badge"
+            class:badge-dialogue={!line.is_context && (line.line_type === "dialogue" || !line.line_type)}
+            class:badge-thought={line.line_type === "thought"}
+            class:badge-narration={line.line_type === "narration"}
+            class:badge-context={line.is_context}
+          >
+            {#if line.is_context}
+              {TYPE_BADGE.context.emoji} {TYPE_BADGE.context.label}
+            {:else}
+              {TYPE_BADGE[line.line_type ?? "dialogue"].emoji} {TYPE_BADGE[line.line_type ?? "dialogue"].label}
+            {/if}
+          </span>
+        </div>
 
         <input
           name={`script${index}`}
@@ -69,6 +117,7 @@
           class:narration-input={line.line_type === "narration"}
           value={line.text}
           onblur={(e) => store.update_line(e.target.value, index)}
+          onkeydown={(e) => handle_line_keydown(e, line.text)}
           autocomplete="off"
           spellcheck="true"
           disabled={store.select_mode}
@@ -101,20 +150,49 @@
   .scene-separator:hover .scene-delete { opacity: 1; }
   .scene-delete:hover { background: var(--error-bg); color: var(--error-text); border-color: var(--error-border); }
 
+  /* ── Línea ── */
   .script-line { position: relative; display: flex; align-items: center; gap: 12px; padding: 3px 0; border-radius: var(--radius-sm); }
+
   .insert-scene-btn { position: absolute; top: -1px; left: 50%; transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: 99px; padding: 2px 8px; cursor: pointer; opacity: 0; pointer-events: none; white-space: nowrap; transition: opacity var(--transition), color var(--transition), border-color var(--transition), background var(--transition); z-index: 2; }
   .script-line:hover .insert-scene-btn { opacity: 1; pointer-events: auto; }
   .insert-scene-btn:hover { color: var(--accent-text); border-color: var(--accent); background: var(--accent-muted); }
 
-  .context-line { margin: 2px 0; }
-  .thought-line { margin: 1px 0; }
-  .narration-line { margin: 1px 0; }
+  /* ── Meta: nombre + badge ── */
+  .line-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    width: var(--label-w, 72px);
+    min-width: var(--label-w, 72px);
+    flex-shrink: 0;
+  }
+  .context-meta { justify-content: center; }
 
-  .line-character { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; width: var(--label-w, 72px); min-width: var(--label-w, 72px); text-align: right; flex-shrink: 0; word-break: break-word; line-height: 1.3; }
-  .context-label { color: var(--text-muted) !important; font-style: italic; opacity: 0.7; }
-  .thought-label { color: var(--type-thought) !important; font-style: italic; }
-  .narration-label { color: var(--type-narration) !important; }
+  .line-character { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; text-align: right; word-break: break-word; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
+  /* ── Badge ── */
+  .line-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border-radius: 99px;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .badge-dialogue  { background: color-mix(in srgb, var(--type-dialogue) 15%, transparent); color: var(--type-dialogue); }
+  .badge-thought   { background: color-mix(in srgb, var(--type-thought) 15%, transparent);  color: var(--type-thought); }
+  .badge-narration { background: color-mix(in srgb, var(--type-narration) 15%, transparent); color: var(--type-narration); }
+  .badge-context   { background: color-mix(in srgb, var(--text-muted) 15%, transparent); color: var(--text-muted); }
+
+  /* ── Inputs ── */
   .line-input { flex: 1; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); padding: 7px 10px; font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); outline: none; transition: background var(--transition), border-color var(--transition); }
   .line-input:hover { background: var(--bg-subtle); border-color: var(--border); }
   .line-input:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-muted); }
@@ -127,12 +205,20 @@
   .script-line:hover .line-delete { opacity: 1; }
   .line-delete:hover { background: var(--error-bg); color: var(--error-text); }
 
+  /* ── Modo selección ── */
   .select-mode-line { cursor: pointer; user-select: none; border-radius: var(--radius-sm); transition: background var(--transition); }
   .select-mode-line .line-input { pointer-events: none; }
   .select-mode-line .insert-scene-btn { pointer-events: none; }
-  .select-mode-line .line-character { pointer-events: none; }
+  .select-mode-line .line-meta { pointer-events: none; }
   .select-mode-line:hover { background: var(--bg-muted); }
   .line-selected { background: color-mix(in srgb, var(--error-text) 10%, transparent) !important; border-radius: var(--radius-sm); }
-  .line-selected .line-character { color: var(--error-text) !important; opacity: 1 !important; }
+  .line-selected .line-character { color: var(--error-text) !important; }
+  .line-selected .line-badge { background: color-mix(in srgb, var(--error-text) 15%, transparent) !important; color: var(--error-text) !important; }
   .line-selected .line-input { color: var(--error-text) !important; }
+
+  .context-line { margin: 2px 0; }
+  .thought-line { margin: 1px 0; }
+  .narration-line { margin: 1px 0; }
 </style>
+
+

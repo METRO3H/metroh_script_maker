@@ -1,7 +1,7 @@
+
 ---
 import Layout from "@layouts/MainLayout.astro";
 import ScriptList from "@components/ScriptList/ScriptList.svelte";
-import { supabase } from "@supabase/supabase";
 import { require_auth, clear_auth } from "@utils/auth";
 
 const auth = await require_auth(Astro.cookies).catch(() => null);
@@ -11,7 +11,7 @@ if (!auth) {
 }
 
 const { user } = auth;
-const { data: scripts } = await supabase.rpc("get_user_scripts");
+const { data: scripts } = await auth.supabase.rpc("get_user_scripts");
 const script_list = scripts ?? [];
 ---
 
@@ -38,7 +38,9 @@ const script_list = scripts ?? [];
           </svg>
         </button>
 
-        <a href="/api/auth/logout" class="btn btn-danger-ghost btn-sm">Cerrar sesión</a>
+        <form method="POST" action="/api/auth/logout" style="display:contents;">
+          <button type="submit" class="btn btn-danger-ghost btn-sm">Cerrar sesión</button>
+        </form>
       </div>
     </header>
 
@@ -76,3 +78,5 @@ const script_list = scripts ?? [];
   .section-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
   .btn-sm { font-size: 10px; padding: 5px 12px; }
 </style>
+
+

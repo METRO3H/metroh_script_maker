@@ -1,3 +1,4 @@
+
 // src/lib/script.store.svelte.ts
 import { tick } from "svelte";
 import type { Character, ScriptLine } from "@types/script";
@@ -41,7 +42,7 @@ export function create_script_store(initialScript: any = null) {
   const LABEL_MAX_PX = 96;
   const CHAR_PX = 7.5;
 
-  let rect_style = $derived(() => {
+  let rect_style = $derived.by(() => {
     const x = Math.min(rect_start_x, rect_cur_x);
     const y = Math.min(rect_start_y, rect_cur_y);
     const w = Math.abs(rect_cur_x - rect_start_x);
@@ -49,12 +50,12 @@ export function create_script_store(initialScript: any = null) {
     return `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
   });
 
-  let label_width = $derived(() => {
+  let label_width = $derived.by(() => {
     const longest = characters.reduce((max, c) => Math.max(max, c.name.length), "contexto".length);
     return Math.min(Math.ceil(longest * CHAR_PX), LABEL_MAX_PX);
   });
 
-  let current_scene_number = $derived(() => {
+  let current_scene_number = $derived.by(() => {
     const scenes = full_script.filter((l) => l.is_scene);
     return scenes.length > 0 ? scenes[scenes.length - 1].scene_number ?? 0 : 0;
   });
@@ -99,11 +100,25 @@ export function create_script_store(initialScript: any = null) {
     const next_chars = characters.filter((_, i) => i !== index);
     full_script = full_script.map((l) => l.is_scene ? l : { ...l, character_index: l.character_index > index ? l.character_index - 1 : l.character_index });
     characters = next_chars;
-    if (current_character >= next_chars.length) current_character = 0;
+    // Igual que con las líneas: si el personaje activo era el borrado, resetear;
+    // si estaba después en la lista, correrlo un lugar para que siga apuntando
+    // al mismo personaje (antes esto solo se corregía si quedaba fuera de rango).
+    if (current_character === index) current_character = 0;
+    else if (current_character > index) current_character -= 1;
+  }
+
+  // ── Auto-capitalizar ─────────────────────────────────────────
+  function capitalize_first(str: string): string {
+    if (!str) return str;
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  function handle_input_change(value: string): string {
+    return capitalize_first(value);
   }
 
   function save_input() {
-    const input = current_input.trim();
+    const input = capitalize_first(current_input.trim());
     if (!input) return;
     if (current_character === -1) {
       full_script = [...full_script, { is_context: true, character_index: -1, text: input }];
@@ -114,7 +129,7 @@ export function create_script_store(initialScript: any = null) {
   }
 
   function update_line(new_text: string, i: number) {
-    full_script = full_script.map((s, index) => (index === i ? { ...s, text: new_text } : s));
+    full_script = full_script.map((s, index) => (index === i ? { ...s, text: capitalize_first(new_text) } : s));
   }
 
   function delete_line(index: number) {
@@ -194,20 +209,29 @@ export function create_script_store(initialScript: any = null) {
     if (!script_title.trim()) { show_toast("no_title"); return; }
     if (full_script.filter((l) => !l.is_scene && !l.is_context).length === 0) { show_toast("no_lines"); return; }
     show_toast("saving");
-    const res = await fetch("/api/script/save", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        script_id,
-        script_name: script_title,
-        characters: characters.map((c) => c.name),
-        lines: full_script.map((line, i) => {
-          if (line.is_scene) return { line_number: i + 1, line_type: "scene", scene_number: line.scene_number };
-          if (line.is_context) return { line_number: i + 1, line_type: "context", content: line.text };
-          return { line_number: i + 1, line_type: line.line_type ?? "dialogue", character_name: characters[line.character_index].name, content: line.text };
+    let res: Response;
+    try {
+      res = await fetch("/api/script/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          script_id,
+          script_name: script_title,
+          characters: characters.map((c) => c.name),
+          lines: full_script.map((line, i) => {
+            if (line.is_scene) return { line_number: i + 1, line_type: "scene", scene_number: line.scene_number };
+            if (line.is_context) return { line_number: i + 1, line_type: "context", content: line.text };
+            return { line_number: i + 1, line_type: line.line_type ?? "dialogue", character_name: characters[line.character_index].name, content: line.text };
+          }),
         }),
-      }),
-    });
+      });
+    } catch {
+      // Falla de red (no un error HTTP): sin este catch, la promesa rechazada
+      // quedaba sin manejar y el toast de "guardando" solo desaparecía solo
+      // a los 3s sin avisar que en realidad no se guardó nada.
+      show_toast("error");
+      return;
+    }
     if (!res.ok) { show_toast("error"); return; }
     const { script_id: returned_id } = await res.json();
     const is_new = script_id === null;
@@ -239,9 +263,13 @@ export function create_script_store(initialScript: any = null) {
     set characters(v)          { characters = v; },
     get full_script()          { return full_script; },
     get current_input()        { return current_input; },
-    set current_input(v)       { current_input = v; },
+    set current_input(v)       { current_input = handle_input_change(v); },
     get current_character()    { return current_character; },
-    set current_character(v)   { current_character = v; },
+    // ── Reset tipo a dialogue al cambiar personaje ────────────
+    set current_character(v)   {
+      current_character = v;
+      if (v !== -1) current_type = "dialogue";
+    },
     get current_type()         { return current_type; },
     set current_type(v)        { current_type = v; },
     get save_status()          { return save_status; },
@@ -266,3 +294,5 @@ export function create_script_store(initialScript: any = null) {
     do_export_txt, do_export_json,
   };
 }
+
+

@@ -1,6 +1,6 @@
+
 // src/pages/api/script/list.ts
 import type { APIRoute } from "astro";
-import { supabase } from "@supabase/supabase";
 import { require_auth } from "@utils/auth";
 
 export const GET: APIRoute = async ({ cookies }) => {
@@ -8,7 +8,7 @@ export const GET: APIRoute = async ({ cookies }) => {
   const auth = await require_auth(cookies);
   if (!auth) return new Response("Unauthorized", { status: 401 });
 
-  const { data, error } = await supabase.rpc("get_user_scripts");
+  const { data, error } = await auth.supabase.rpc("get_user_scripts");
   if (error) return new Response(error.message, { status: 500 });
 
   return new Response(JSON.stringify(data), {
@@ -16,3 +16,4 @@ export const GET: APIRoute = async ({ cookies }) => {
     headers: { "Content-Type": "application/json" },
   });
 };
+
