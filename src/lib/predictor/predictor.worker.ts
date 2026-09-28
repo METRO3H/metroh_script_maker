@@ -23,13 +23,14 @@ let handler: WebWorkerMLCEngineHandler;
 // "normal" del hilo principal ni al catch de predict(). Sin este
 // handler, se pierden en silencio y el cliente queda esperando una
 // respuesta que ya nadie va a mandar.
-self.onerror = (event: ErrorEvent) => {
+self.onerror = (event: string | Event, source?: string, lineno?: number, colno?: number, error?: Error) => {
+   const errorEvent = typeof event === "string" ? undefined : event as ErrorEvent;
    console.error("[predictor.worker] error no capturado en el worker:", {
-      message: event.message,
-      filename: event.filename,
-      lineno: event.lineno,
-      colno: event.colno,
-      error: event.error,
+      message: errorEvent?.message ?? event,
+      filename: errorEvent?.filename ?? source,
+      lineno: errorEvent?.lineno ?? lineno,
+      colno: errorEvent?.colno ?? colno,
+      error: errorEvent?.error ?? error,
    });
 };
 
