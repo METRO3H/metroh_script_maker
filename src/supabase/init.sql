@@ -1,29 +1,42 @@
--- ─────────────────────────────────────────────
--- DROP todo para empezar limpio
--- ─────────────────────────────────────────────
+-- ═════════════════════════════════════════════════════════════
+-- LIMPIEZA COMPLETA
+-- Elimina las tablas de la aplicación y sus dependencias.
+-- No elimina los usuarios de auth.users.
+-- ═════════════════════════════════════════════════════════════
 
+-- El trigger de autenticación está asociado a una tabla de Supabase
+-- que no vamos a eliminar.
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP TRIGGER IF EXISTS set_updated_at_scripts ON scripts;
-DROP TRIGGER IF EXISTS set_updated_at_characters ON characters;
-DROP TRIGGER IF EXISTS set_updated_at_script_lines ON script_lines;
 
+-- Primero se eliminan las tablas dependientes.
+-- CASCADE elimina sus triggers, políticas y dependencias asociadas.
+DROP TABLE IF EXISTS script_lines CASCADE;
+DROP TABLE IF EXISTS characters CASCADE;
+DROP TABLE IF EXISTS scripts CASCADE;
+DROP TABLE IF EXISTS projects CASCADE;
+DROP TABLE IF EXISTS profiles CASCADE;
+
+-- Eliminar las funciones existentes.
 DROP FUNCTION IF EXISTS handle_new_user();
 DROP FUNCTION IF EXISTS update_updated_at();
+
 DROP FUNCTION IF EXISTS upsert_script(UUID, TEXT, TEXT[], JSONB);
+DROP FUNCTION IF EXISTS upsert_script(UUID, TEXT, TEXT, UUID, TEXT[], JSONB);
+
 DROP FUNCTION IF EXISTS get_user_scripts();
 DROP FUNCTION IF EXISTS get_script_detail(UUID);
 DROP FUNCTION IF EXISTS delete_character(UUID, BOOLEAN);
 DROP FUNCTION IF EXISTS delete_script(UUID);
 
-DROP TABLE IF EXISTS script_lines;
-DROP TABLE IF EXISTS characters;
-DROP TABLE IF EXISTS scripts;
-DROP TABLE IF EXISTS profiles;
+DROP FUNCTION IF EXISTS get_user_projects();
+DROP FUNCTION IF EXISTS create_project(TEXT);
+DROP FUNCTION IF EXISTS rename_project(UUID, TEXT);
+DROP FUNCTION IF EXISTS delete_project(UUID);
 
 
--- ─────────────────────────────────────────────
--- Tablas
--- ─────────────────────────────────────────────
+-- ═════════════════════════════════════════════════════════════
+-- TABLAS
+-- ═════════════════════════════════════════════════════════════
 
 CREATE TABLE profiles (
     id         UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -51,13 +64,22 @@ CREATE TABLE characters (
 -- character_id: NULL para context y scene
 -- content:      NULL para scene
 -- scene_number: solo para line_type = 'scene'
+
 CREATE TABLE script_lines (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     script_id    UUID REFERENCES scripts(id) ON DELETE CASCADE NOT NULL,
     character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
     line_number  INTEGER NOT NULL,
     line_type    TEXT NOT NULL DEFAULT 'dialogue'
-                 CHECK (line_type IN ('dialogue', 'thought', 'narration', 'context', 'scene')),
+                 CHECK (
+                     line_type IN (
+                         'dialogue',
+                         'thought',
+                         'narration',
+                         'context',
+                         'scene'
+                     )
+                 ),
     content      TEXT,
     scene_number INTEGER,
     created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -65,305 +87,829 @@ CREATE TABLE script_lines (
 );
 
 
--- ─────────────────────────────────────────────
--- Trigger: crear profile al registrar usuario
--- ─────────────────────────────────────────────
+-- ═════════════════════════════════════════════════════════════
+-- TRIGGER: CREAR PERFIL AL REGISTRAR USUARIO
+-- ═════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email)
-  VALUES (NEW.id, NEW.email);
-  RETURN NEW;
+    INSERT INTO public.profiles (id, email)
+    VALUES (NEW.id, NEW.email);
+
+    RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public;
+$$;
 
-CREATE OR REPLACE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW
+    EXECUTE FUNCTION handle_new_user();
 
 
--- ─────────────────────────────────────────────
--- RLS
--- ─────────────────────────────────────────────
+-- ═════════════════════════════════════════════════════════════
+-- RLS: ROW LEVEL SECURITY
+-- ═════════════════════════════════════════════════════════════
 
-ALTER TABLE profiles     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE scripts      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE characters   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scripts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE characters ENABLE ROW LEVEL SECURITY;
 ALTER TABLE script_lines ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Usuario ve su propio perfil"
-  ON profiles FOR ALL USING (id = auth.uid());
+    ON profiles
+    FOR ALL
+    USING (id = auth.uid());
 
 CREATE POLICY "Usuario ve sus propios scripts"
-  ON scripts FOR ALL USING (user_id = auth.uid());
+    ON scripts
+    FOR ALL
+    USING (user_id = auth.uid());
 
 CREATE POLICY "Usuario ve personajes de sus scripts"
-  ON characters FOR ALL
-  USING (script_id IN (SELECT id FROM scripts WHERE user_id = auth.uid()));
+    ON characters
+    FOR ALL
+    USING (
+        script_id IN (
+            SELECT id
+            FROM scripts
+            WHERE user_id = auth.uid()
+        )
+    );
 
 CREATE POLICY "Usuario ve líneas de sus scripts"
-  ON script_lines FOR ALL
-  USING (script_id IN (SELECT id FROM scripts WHERE user_id = auth.uid()));
+    ON script_lines
+    FOR ALL
+    USING (
+        script_id IN (
+            SELECT id
+            FROM scripts
+            WHERE user_id = auth.uid()
+        )
+    );
 
 
--- ─────────────────────────────────────────────
+-- ═════════════════════════════════════════════════════════════
 -- upsert_script
--- Guarda todas las líneas: dialogue, thought,
--- narration, context y scene
--- ─────────────────────────────────────────────
+-- Guarda todas las líneas: dialogue, thought, narration,
+-- context y scene.
+-- Esta es la versión inicial; más abajo se reemplaza por
+-- la versión que también admite proyectos y texto en inglés.
+-- ═════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION upsert_script(
-  p_script_id   UUID,
-  p_script_name TEXT,
-  p_characters  TEXT[],
-  p_lines       JSONB
+    p_script_id   UUID,
+    p_script_name TEXT,
+    p_characters  TEXT[],
+    p_lines       JSONB
 )
 RETURNS UUID
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
-  v_script_id     UUID;
-  v_character_id  UUID;
-  v_character_map JSONB := '{}';
-  v_line          JSONB;
-  v_character     TEXT;
-  v_user_id       UUID;
-  v_line_type     TEXT;
-  v_character_name TEXT;
+    v_script_id      UUID;
+    v_character_id   UUID;
+    v_character_map  JSONB := '{}';
+    v_line           JSONB;
+    v_character      TEXT;
+    v_user_id        UUID;
+    v_line_type      TEXT;
+    v_character_name TEXT;
 BEGIN
-  v_user_id := auth.uid();
-  IF v_user_id IS NULL THEN
-    RAISE EXCEPTION 'No autenticado';
-  END IF;
+    v_user_id := auth.uid();
 
-  IF p_script_id IS NULL THEN
-    INSERT INTO scripts (user_id, name)
-    VALUES (v_user_id, p_script_name)
-    RETURNING id INTO v_script_id;
-  ELSE
-    SELECT id INTO v_script_id
-    FROM scripts
-    WHERE id = p_script_id AND user_id = v_user_id;
-
-    IF v_script_id IS NULL THEN
-      RAISE EXCEPTION 'Script no encontrado';
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'No autenticado';
     END IF;
 
-    UPDATE scripts SET name = p_script_name, updated_at = NOW() WHERE id = v_script_id;
-    DELETE FROM script_lines WHERE script_id = v_script_id;
-    DELETE FROM characters WHERE script_id = v_script_id;
-  END IF;
+    IF p_script_id IS NULL THEN
+        INSERT INTO scripts (user_id, name)
+        VALUES (v_user_id, p_script_name)
+        RETURNING id INTO v_script_id;
+    ELSE
+        SELECT id
+        INTO v_script_id
+        FROM scripts
+        WHERE id = p_script_id
+          AND user_id = v_user_id;
 
-  FOREACH v_character IN ARRAY p_characters LOOP
-    INSERT INTO characters (script_id, name)
-    VALUES (v_script_id, v_character)
-    RETURNING id INTO v_character_id;
-    v_character_map := v_character_map || jsonb_build_object(v_character, v_character_id);
-  END LOOP;
+        IF v_script_id IS NULL THEN
+            RAISE EXCEPTION 'Script no encontrado';
+        END IF;
 
-  FOR v_line IN SELECT * FROM jsonb_array_elements(p_lines) LOOP
-    v_line_type      := v_line->>'line_type';
-    v_character_name := v_line->>'character_name';
+        UPDATE scripts
+        SET name = p_script_name,
+            updated_at = NOW()
+        WHERE id = v_script_id;
 
-    INSERT INTO script_lines (
-      script_id, character_id, line_number, line_type, content, scene_number
-    ) VALUES (
-      v_script_id,
-      CASE WHEN v_character_name IS NOT NULL THEN (v_character_map ->> v_character_name)::UUID ELSE NULL END,
-      (v_line->>'line_number')::INTEGER,
-      v_line_type,
-      v_line->>'content',
-      CASE WHEN v_line_type = 'scene' THEN (v_line->>'scene_number')::INTEGER ELSE NULL END
-    );
-  END LOOP;
+        DELETE FROM script_lines
+        WHERE script_id = v_script_id;
 
-  RETURN v_script_id;
+        DELETE FROM characters
+        WHERE script_id = v_script_id;
+    END IF;
+
+    FOREACH v_character IN ARRAY p_characters LOOP
+        INSERT INTO characters (script_id, name)
+        VALUES (v_script_id, v_character)
+        RETURNING id INTO v_character_id;
+
+        v_character_map :=
+            v_character_map ||
+            jsonb_build_object(v_character, v_character_id);
+    END LOOP;
+
+    FOR v_line IN
+        SELECT *
+        FROM jsonb_array_elements(p_lines)
+    LOOP
+        v_line_type := v_line->>'line_type';
+        v_character_name := v_line->>'character_name';
+
+        INSERT INTO script_lines (
+            script_id,
+            character_id,
+            line_number,
+            line_type,
+            content,
+            scene_number
+        )
+        VALUES (
+            v_script_id,
+            CASE
+                WHEN v_character_name IS NOT NULL
+                THEN (v_character_map ->> v_character_name)::UUID
+                ELSE NULL
+            END,
+            (v_line->>'line_number')::INTEGER,
+            v_line_type,
+            v_line->>'content',
+            CASE
+                WHEN v_line_type = 'scene'
+                THEN (v_line->>'scene_number')::INTEGER
+                ELSE NULL
+            END
+        );
+    END LOOP;
+
+    RETURN v_script_id;
 END;
 $$;
--- ─────────────────────────────────────────────
+
+
+-- ═════════════════════════════════════════════════════════════
 -- get_user_scripts
--- ─────────────────────────────────────────────
+-- ═════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION get_user_scripts()
 RETURNS TABLE (
-  id              UUID,
-  name            TEXT,
-  character_count BIGINT,
-  line_count      BIGINT,
-  created_at      TIMESTAMP,
-  updated_at      TIMESTAMP
+    id              UUID,
+    name            TEXT,
+    character_count BIGINT,
+    line_count      BIGINT,
+    created_at      TIMESTAMP,
+    updated_at      TIMESTAMP
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
-  RETURN QUERY
-  SELECT
-    s.id,
-    s.name,
-    COUNT(DISTINCT c.id) AS character_count,
-    -- Solo contamos líneas de diálogo reales, no escenas ni contextos
-    COUNT(DISTINCT sl.id) FILTER (
-      WHERE sl.line_type IN ('dialogue', 'thought', 'narration')
-    ) AS line_count,
-    s.created_at,
-    s.updated_at
-  FROM scripts s
-  LEFT JOIN characters   c  ON c.script_id  = s.id
-  LEFT JOIN script_lines sl ON sl.script_id = s.id
-  WHERE s.user_id = auth.uid()
-  GROUP BY s.id, s.name, s.created_at, s.updated_at
-  ORDER BY s.updated_at DESC;
+    RETURN QUERY
+    SELECT
+        s.id,
+        s.name,
+        COUNT(DISTINCT c.id) AS character_count,
+        COUNT(DISTINCT sl.id) FILTER (
+            WHERE sl.line_type IN (
+                'dialogue',
+                'thought',
+                'narration'
+            )
+        ) AS line_count,
+        s.created_at,
+        s.updated_at
+    FROM scripts s
+    LEFT JOIN characters c
+        ON c.script_id = s.id
+    LEFT JOIN script_lines sl
+        ON sl.script_id = s.id
+    WHERE s.user_id = auth.uid()
+    GROUP BY
+        s.id,
+        s.name,
+        s.created_at,
+        s.updated_at
+    ORDER BY s.updated_at DESC;
 END;
 $$;
 
 
--- ─────────────────────────────────────────────
+-- ═════════════════════════════════════════════════════════════
 -- get_script_detail
--- Devuelve el script completo para restaurar
--- el estado exacto en el editor
--- ─────────────────────────────────────────────
+-- Devuelve el script completo para restaurar el editor.
+-- ═════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION get_script_detail(p_script_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
-  v_result JSONB;
+    v_result JSONB;
 BEGIN
-  SELECT jsonb_build_object(
-    'id',   s.id,
-    'name', s.name,
-    'characters', (
-      SELECT jsonb_agg(
-        jsonb_build_object('name', c.name)
-        ORDER BY c.created_at
-      )
-      FROM characters c WHERE c.script_id = s.id
-    ),
-    'lines', (
-      SELECT jsonb_agg(
-        jsonb_build_object(
-          'line_type',     sl.line_type,
-          'character_name', c.name,
-          'content',       sl.content,
-          'scene_number',  sl.scene_number
+    SELECT jsonb_build_object(
+        'id', s.id,
+        'name', s.name,
+        'characters', (
+            SELECT jsonb_agg(
+                jsonb_build_object('name', c.name)
+                ORDER BY c.created_at
+            )
+            FROM characters c
+            WHERE c.script_id = s.id
+        ),
+        'lines', (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'line_type', sl.line_type,
+                    'character_name', c.name,
+                    'content', sl.content,
+                    'scene_number', sl.scene_number
+                )
+                ORDER BY sl.line_number
+            )
+            FROM script_lines sl
+            LEFT JOIN characters c
+                ON c.id = sl.character_id
+            WHERE sl.script_id = s.id
         )
-        ORDER BY sl.line_number
-      )
-      FROM script_lines sl
-      LEFT JOIN characters c ON c.id = sl.character_id
-      WHERE sl.script_id = s.id
     )
-  )
-  INTO v_result
-  FROM scripts s
-  WHERE s.id = p_script_id AND s.user_id = auth.uid();
+    INTO v_result
+    FROM scripts s
+    WHERE s.id = p_script_id
+      AND s.user_id = auth.uid();
 
-  RETURN v_result;
+    RETURN v_result;
 END;
 $$;
 
 
--- ─────────────────────────────────────────────
+-- ═════════════════════════════════════════════════════════════
 -- delete_character
--- ─────────────────────────────────────────────
+-- ═════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION delete_character(
-  p_character_id UUID,
-  p_keep_lines   BOOLEAN
+    p_character_id UUID,
+    p_keep_lines   BOOLEAN
 )
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
-  v_script_id    UUID;
-  v_unknown_id   UUID;
-  v_unknown_n    INT;
-  v_unknown_name TEXT;
+    v_script_id    UUID;
+    v_unknown_id   UUID;
+    v_unknown_n    INT;
+    v_unknown_name TEXT;
 BEGIN
-  SELECT script_id INTO v_script_id
-  FROM characters
-  WHERE id = p_character_id
-    AND script_id IN (SELECT id FROM scripts WHERE user_id = auth.uid());
-
-  IF v_script_id IS NULL THEN
-    RAISE EXCEPTION 'Personaje no encontrado';
-  END IF;
-
-  IF p_keep_lines THEN
-    SELECT COUNT(*) + 1 INTO v_unknown_n
+    SELECT script_id
+    INTO v_script_id
     FROM characters
-    WHERE script_id = v_script_id
-      AND name LIKE 'Desconocido %';
+    WHERE id = p_character_id
+      AND script_id IN (
+          SELECT id
+          FROM scripts
+          WHERE user_id = auth.uid()
+      );
 
-    v_unknown_name := 'Desconocido ' || v_unknown_n;
+    IF v_script_id IS NULL THEN
+        RAISE EXCEPTION 'Personaje no encontrado';
+    END IF;
 
-    INSERT INTO characters (script_id, name)
-    VALUES (v_script_id, v_unknown_name)
-    RETURNING id INTO v_unknown_id;
+    IF p_keep_lines THEN
+        SELECT COUNT(*) + 1
+        INTO v_unknown_n
+        FROM characters
+        WHERE script_id = v_script_id
+          AND name LIKE 'Desconocido %';
 
-    UPDATE script_lines
-    SET character_id = v_unknown_id
-    WHERE character_id = p_character_id;
-  END IF;
+        v_unknown_name := 'Desconocido ' || v_unknown_n;
 
-  DELETE FROM characters WHERE id = p_character_id;
+        INSERT INTO characters (script_id, name)
+        VALUES (v_script_id, v_unknown_name)
+        RETURNING id INTO v_unknown_id;
+
+        UPDATE script_lines
+        SET character_id = v_unknown_id
+        WHERE character_id = p_character_id;
+    END IF;
+
+    DELETE FROM characters
+    WHERE id = p_character_id;
 END;
 $$;
 
--- ─────────────────────────────────────────────
+
+-- ═════════════════════════════════════════════════════════════
 -- delete_script
--- ─────────────────────────────────────────────
+-- ═════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION delete_script(p_script_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
-  DELETE FROM scripts
-  WHERE id = p_script_id AND user_id = auth.uid();
+    DELETE FROM scripts
+    WHERE id = p_script_id
+      AND user_id = auth.uid();
 
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Script no encontrado';
-  END IF;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Script no encontrado';
+    END IF;
 END;
 $$;
 
--- ─────────────────────────────────────────────
--- Triggers: updated_at automático
--- ─────────────────────────────────────────────
+
+-- ═════════════════════════════════════════════════════════════
+-- TRIGGERS: updated_at AUTOMÁTICO
+-- ═════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
 BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
+    NEW.updated_at = NOW();
+    RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-CREATE OR REPLACE TRIGGER set_updated_at_scripts
-  BEFORE UPDATE ON scripts
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER set_updated_at_scripts
+    BEFORE UPDATE ON scripts
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
 
-CREATE OR REPLACE TRIGGER set_updated_at_characters
-  BEFORE UPDATE ON characters
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER set_updated_at_characters
+    BEFORE UPDATE ON characters
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
 
-CREATE OR REPLACE TRIGGER set_updated_at_script_lines
-  BEFORE UPDATE ON script_lines
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER set_updated_at_script_lines
+    BEFORE UPDATE ON script_lines
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
 
 
-  -- ─────────────────────────────────────────────
--- Sincronizar usuarios existentes en auth.users
--- ─────────────────────────────────────────────
+-- ═════════════════════════════════════════════════════════════
+-- SINCRONIZAR USUARIOS EXISTENTES
+-- ═════════════════════════════════════════════════════════════
+
 INSERT INTO profiles (id, email)
-SELECT id, email FROM auth.users
+SELECT id, email
+FROM auth.users
 ON CONFLICT (id) DO NOTHING;
+
+
+-- ═════════════════════════════════════════════════════════════
+-- PROYECTOS + VERSIÓN EN INGLÉS
+-- ═════════════════════════════════════════════════════════════
+
+-- ─────────────────────────────────────────────────────────────
+-- Tabla de proyectos
+-- ─────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS projects (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+    name       TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Un usuario no puede tener dos proyectos con el mismo nombre,
+-- sin distinguir mayúsculas y minúsculas.
+CREATE UNIQUE INDEX IF NOT EXISTS projects_user_name_unique
+    ON projects (user_id, LOWER(name));
+
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Usuario ve sus propios proyectos" ON projects;
+
+CREATE POLICY "Usuario ve sus propios proyectos"
+    ON projects
+    FOR ALL
+    USING (user_id = auth.uid());
+
+-- Si se borra el proyecto, sus scripts quedan sin proyecto.
+ALTER TABLE scripts
+    ADD COLUMN IF NOT EXISTS project_id UUID
+    REFERENCES projects(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS scripts_project_id_idx
+    ON scripts (project_id);
+
+
+-- ─────────────────────────────────────────────────────────────
+-- Versión en inglés
+-- ─────────────────────────────────────────────────────────────
+
+-- La estructura (escenas, personajes, orden y tipos) es única.
+-- Solo el texto tiene versión en inglés.
+-- NULL significa que aún no está traducido.
+
+ALTER TABLE scripts
+    ADD COLUMN IF NOT EXISTS name_en TEXT;
+
+ALTER TABLE script_lines
+    ADD COLUMN IF NOT EXISTS content_en TEXT;
+
+
+-- ─────────────────────────────────────────────────────────────
+-- Trigger de updated_at para proyectos
+-- ─────────────────────────────────────────────────────────────
+
+CREATE TRIGGER set_updated_at_projects
+    BEFORE UPDATE ON projects
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+
+-- ═════════════════════════════════════════════════════════════
+-- upsert_script
+-- Firma nueva: título EN + proyecto.
+-- ═════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION upsert_script(
+    p_script_id      UUID,
+    p_script_name    TEXT,
+    p_script_name_en TEXT,
+    p_project_id     UUID,
+    p_characters     TEXT[],
+    p_lines          JSONB
+)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_script_id      UUID;
+    v_character_id   UUID;
+    v_character_map  JSONB := '{}';
+    v_line           JSONB;
+    v_character      TEXT;
+    v_user_id        UUID;
+    v_line_type      TEXT;
+    v_character_name TEXT;
+BEGIN
+    v_user_id := auth.uid();
+
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'No autenticado';
+    END IF;
+
+    -- El proyecto debe pertenecer al usuario autenticado.
+    IF p_project_id IS NOT NULL THEN
+        PERFORM 1
+        FROM projects
+        WHERE id = p_project_id
+          AND user_id = v_user_id;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Proyecto no encontrado';
+        END IF;
+    END IF;
+
+    IF p_script_id IS NULL THEN
+        INSERT INTO scripts (
+            user_id,
+            name,
+            name_en,
+            project_id
+        )
+        VALUES (
+            v_user_id,
+            p_script_name,
+            NULLIF(p_script_name_en, ''),
+            p_project_id
+        )
+        RETURNING id INTO v_script_id;
+    ELSE
+        SELECT id
+        INTO v_script_id
+        FROM scripts
+        WHERE id = p_script_id
+          AND user_id = v_user_id;
+
+        IF v_script_id IS NULL THEN
+            RAISE EXCEPTION 'Script no encontrado';
+        END IF;
+
+        UPDATE scripts
+        SET name = p_script_name,
+            name_en = NULLIF(p_script_name_en, ''),
+            project_id = p_project_id,
+            updated_at = NOW()
+        WHERE id = v_script_id;
+
+        DELETE FROM script_lines
+        WHERE script_id = v_script_id;
+
+        DELETE FROM characters
+        WHERE script_id = v_script_id;
+    END IF;
+
+    FOREACH v_character IN ARRAY p_characters LOOP
+        INSERT INTO characters (script_id, name)
+        VALUES (v_script_id, v_character)
+        RETURNING id INTO v_character_id;
+
+        v_character_map :=
+            v_character_map ||
+            jsonb_build_object(v_character, v_character_id);
+    END LOOP;
+
+    FOR v_line IN
+        SELECT *
+        FROM jsonb_array_elements(p_lines)
+    LOOP
+        v_line_type := v_line->>'line_type';
+        v_character_name := v_line->>'character_name';
+
+        INSERT INTO script_lines (
+            script_id,
+            character_id,
+            line_number,
+            line_type,
+            content,
+            content_en,
+            scene_number
+        )
+        VALUES (
+            v_script_id,
+            CASE
+                WHEN v_character_name IS NOT NULL
+                THEN (v_character_map ->> v_character_name)::UUID
+                ELSE NULL
+            END,
+            (v_line->>'line_number')::INTEGER,
+            v_line_type,
+            v_line->>'content',
+            NULLIF(v_line->>'content_en', ''),
+            CASE
+                WHEN v_line_type = 'scene'
+                THEN (v_line->>'scene_number')::INTEGER
+                ELSE NULL
+            END
+        );
+    END LOOP;
+
+    RETURN v_script_id;
+END;
+$$;
+
+
+-- ═════════════════════════════════════════════════════════════
+-- get_user_scripts
+-- Incluye proyecto, título EN y cantidad de líneas traducidas.
+-- ═════════════════════════════════════════════════════════════
+
+DROP FUNCTION IF EXISTS get_user_scripts();
+
+CREATE OR REPLACE FUNCTION get_user_scripts()
+RETURNS TABLE (
+    id               UUID,
+    name             TEXT,
+    name_en          TEXT,
+    project_id       UUID,
+    character_count  BIGINT,
+    line_count       BIGINT,
+    translated_count BIGINT,
+    created_at       TIMESTAMP,
+    updated_at       TIMESTAMP
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        s.id,
+        s.name,
+        s.name_en,
+        s.project_id,
+        COUNT(DISTINCT c.id) AS character_count,
+        COUNT(DISTINCT sl.id) FILTER (
+            WHERE sl.line_type IN (
+                'dialogue',
+                'thought',
+                'narration'
+            )
+        ) AS line_count,
+        COUNT(DISTINCT sl.id) FILTER (
+            WHERE sl.line_type IN (
+                'dialogue',
+                'thought',
+                'narration'
+            )
+            AND sl.content_en IS NOT NULL
+        ) AS translated_count,
+        s.created_at,
+        s.updated_at
+    FROM scripts s
+    LEFT JOIN characters c
+        ON c.script_id = s.id
+    LEFT JOIN script_lines sl
+        ON sl.script_id = s.id
+    WHERE s.user_id = auth.uid()
+    GROUP BY
+        s.id,
+        s.name,
+        s.name_en,
+        s.project_id,
+        s.created_at,
+        s.updated_at
+    ORDER BY s.updated_at DESC;
+END;
+$$;
+
+
+-- ═════════════════════════════════════════════════════════════
+-- get_script_detail
+-- Incluye título EN, proyecto y texto traducido.
+-- ═════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION get_script_detail(p_script_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_result JSONB;
+BEGIN
+    SELECT jsonb_build_object(
+        'id', s.id,
+        'name', s.name,
+        'name_en', s.name_en,
+        'project_id', s.project_id,
+        'characters', (
+            SELECT jsonb_agg(
+                jsonb_build_object('name', c.name)
+                ORDER BY c.created_at
+            )
+            FROM characters c
+            WHERE c.script_id = s.id
+        ),
+        'lines', (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'line_type', sl.line_type,
+                    'character_name', c.name,
+                    'content', sl.content,
+                    'content_en', sl.content_en,
+                    'scene_number', sl.scene_number
+                )
+                ORDER BY sl.line_number
+            )
+            FROM script_lines sl
+            LEFT JOIN characters c
+                ON c.id = sl.character_id
+            WHERE sl.script_id = s.id
+        )
+    )
+    INTO v_result
+    FROM scripts s
+    WHERE s.id = p_script_id
+      AND s.user_id = auth.uid();
+
+    RETURN v_result;
+END;
+$$;
+
+
+-- ═════════════════════════════════════════════════════════════
+-- FUNCIONES DE PROYECTOS
+-- ═════════════════════════════════════════════════════════════
+
+-- ─────────────────────────────────────────────────────────────
+-- get_user_projects
+-- ─────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION get_user_projects()
+RETURNS TABLE (
+    id           UUID,
+    name         TEXT,
+    script_count BIGINT,
+    updated_at   TIMESTAMP
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        p.id,
+        p.name,
+        COUNT(s.id) AS script_count,
+        p.updated_at
+    FROM projects p
+    LEFT JOIN scripts s
+        ON s.project_id = p.id
+    WHERE p.user_id = auth.uid()
+    GROUP BY
+        p.id,
+        p.name,
+        p.updated_at
+    ORDER BY LOWER(p.name);
+END;
+$$;
+
+
+-- ─────────────────────────────────────────────────────────────
+-- create_project
+-- ─────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION create_project(p_name TEXT)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_id UUID;
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'No autenticado';
+    END IF;
+
+    INSERT INTO projects (user_id, name)
+    VALUES (auth.uid(), BTRIM(p_name))
+    RETURNING id INTO v_id;
+
+    RETURN v_id;
+END;
+$$;
+
+
+-- ─────────────────────────────────────────────────────────────
+-- rename_project
+-- ─────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION rename_project(
+    p_project_id UUID,
+    p_name       TEXT
+)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    UPDATE projects
+    SET name = BTRIM(p_name),
+        updated_at = NOW()
+    WHERE id = p_project_id
+      AND user_id = auth.uid();
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Proyecto no encontrado';
+    END IF;
+END;
+$$;
+
+
+-- ─────────────────────────────────────────────────────────────
+-- delete_project
+-- Los scripts quedan con project_id = NULL.
+-- ─────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION delete_project(p_project_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    DELETE FROM projects
+    WHERE id = p_project_id
+      AND user_id = auth.uid();
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Proyecto no encontrado';
+    END IF;
+END;
+$$;

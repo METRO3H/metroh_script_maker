@@ -5,14 +5,12 @@
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-3FCF8E?logo=supabase&logoColor=white)
-![WebLLM](https://img.shields.io/badge/WebLLM-1A1A1A?logo=openai&logoColor=white)
-![WebGPU](https://img.shields.io/badge/WebGPU-005A9C?logo=webgpu&logoColor=white)
 ![Vercel](https://img.shields.io/badge/Vercel-000000?logo=vercel&logoColor=white)
 ![Status](https://img.shields.io/badge/status-active-brightgreen)
 
 A web-based script editor designed for writing and organizing visual-novel style scripts.
 
-Metroh Script Maker combines a focused script-writing interface with account-based storage, scene management, multiple line types, file export, and an optional local AI autocomplete powered by WebLLM and WebGPU.
+Metroh Script Maker combines a focused script-writing interface with account-based storage, scene management, multiple line types, file export, a local word-suggestion bar, projects, and a Spanish / English version of every script.
 
 ## Features
 
@@ -31,23 +29,23 @@ Metroh Script Maker combines a focused script-writing interface with account-bas
 - Automatically scroll to the newest content.
 - Navigate between scenes without manually searching through the script.
 
-### Local AI autocomplete
-- Optional ghost-text autocomplete directly inside the script input.
-- Powered by **Qwen3-0.6B** through **WebLLM**.
-- Runs in a **Web Worker** so model inference does not block the main UI thread.
-- Uses streaming generation to display suggestions progressively.
-- Cancels obsolete generations when the user keeps typing.
-- Uses conservative response cleanup to avoid duplicated text, formatting artifacts, and multi-line output.
-- Requires **WebGPU**.
-- The current implementation disables the feature on **iOS**.
+### Word suggestions (no AI)
+- A suggestion bar above the script input, like a phone keyboard: up to three chips that complete the word being typed or fix a likely typo.
+- Fully local and deterministic: no model download, no network requests, no WebGPU. Works on every device, including iOS.
+- Conservative by design: it never edits the text on its own. A chip is applied only when tapped (or with `Tab` for the first one).
+- Learns from the script itself: words from existing lines and character names rank above the built-in Spanish word list (`src/lib/suggest/spanish_words.ts`, easy to extend).
+- Handles accent restoration (`estacion` → `estación`) and one/two-letter typos (`habalr` → `hablar`).
 
-The configured model is:
+### Projects
+- Group related scripts under a project. Create, rename and delete projects from the script list; pick the project of a script from the editor header.
+- Deleting a project never deletes its scripts: they move to "Sin proyecto".
+- "+ Script" inside a project opens the editor with that project preselected.
 
-```text
-Qwen3-0.6B-q4f16_1-MLC
-```
-
-The project uses a 4-bit quantized model and expects roughly **350–400 MB** for the model data.
+### Spanish / English tabs
+- Every script has an **Español | English** tab pair. The structure (scenes, characters, order, line types) is shared and edited in Spanish; the English tab only holds the translation of each line and of the title.
+- The project does not translate anything: the English text is pasted or typed by hand (for example, from an external translator).
+- The English tab shows the Spanish line as a reference above each translation input, highlights untranslated lines, shows a `translated / total` counter, and `Enter` jumps to the next line.
+- Export: `.txt` follows the active tab (untranslated lines appear as `{{Spanish text}}` in English); `.json` contains both languages (`content` and `content_en`).
 
 ### Authentication and persistence
 - Email/password registration and login.
@@ -81,10 +79,6 @@ The JSON export preserves the script structure, characters, scenes, line types, 
 | Authentication | Supabase Auth |
 | Database | Supabase / PostgreSQL |
 | Validation | Zod |
-| Local AI | WebLLM |
-| AI model | Qwen3-0.6B (`q4f16_1`) |
-| GPU acceleration | WebGPU |
-| AI isolation | Web Worker |
 | Deployment adapter | Vercel |
 
 The project is configured as a server-rendered Astro application using the Vercel adapter.
@@ -98,14 +92,6 @@ For the regular application:
 - Node.js
 - npm
 - A Supabase project
-
-For the local AI predictor:
-
-- A browser with WebGPU support
-- A device capable of running the configured WebLLM model
-- Sufficient storage/memory for the model
-
-The predictor checks for WebGPU support in the browser before enabling itself. iOS devices are intentionally excluded by the current implementation.
 
 ---
 
@@ -144,6 +130,8 @@ src/supabase/init.sql
 ```
 
 Run that SQL against your Supabase/PostgreSQL database.
+
+If you already have data, do **not** run `init.sql` (it drops everything). Run `src/supabase/migration_001_projects_and_english.sql` instead: it is non-destructive and safe to run more than once.
 
 The schema creates:
 
@@ -196,74 +184,45 @@ The editor includes several productivity shortcuts.
 | `Shift + Arrow Right` | Select the next character |
 | `Shift + Z` | Cycle through dialogue → thought → narration → context |
 | `Escape` | Close menus / dialogs or exit selection mode |
-| `Tab` | Accept the AI autocomplete suggestion |
-| `Escape` while a suggestion is visible | Dismiss the AI suggestion |
+| `Tab` | Accept the first word suggestion (only while the suggestion bar has one) |
 
 `Ctrl + S` becomes `Cmd + S` on macOS.
 
+In the English tab only `Ctrl + S`, `Escape` and the scene navigation shortcuts apply; shortcuts that change the structure of the script are ignored.
+
 ---
 
-## AI Autocomplete Architecture
-
-The predictor is intentionally separated from the script editor so the editor does not depend directly on WebLLM.
+## Word Suggestions Architecture
 
 ```text
-ScriptInputZone
+ScriptInputZone ── SuggestionBar (chips)
       │
       ▼
-  ghost_input
+script.store.svelte.ts  (vocab version + `suggestions` derived)
       │
       ▼
-predictor_store
+suggest.engine.ts  (pure TypeScript, no DOM, no Svelte)
       │
       ▼
- predictor.client
-      │
-      ▼
-   Web Worker
-      │
-      ▼
-     WebLLM
-      │
-      ▼
- Qwen3-0.6B
+spanish_words.ts  (base vocabulary)
 ```
 
-### Why this structure?
-
-The predictor uses a small internal contract:
-
-```ts
-interface Predictor {
-  readonly status: PredictorStatus;
-  load(config: PredictorConfig): Promise<void>;
-  predict(req: PredictorRequest): AsyncGenerator<PredictorChunk>;
-  unload(): void;
-}
-```
-
-This keeps the rest of the application independent from the concrete inference engine. Replacing WebLLM with another browser inference API would therefore be localized to the predictor implementation.
-
-### Suggestion flow
-
-1. The user types in the script input.
-2. The input waits for a short debounce period.
-3. The editor builds a domain-specific prompt from the most recent script lines.
-4. The predictor starts a streaming generation.
-5. The suggestion is rendered as ghost text over the input.
-6. `Tab` accepts the suggestion.
-7. Typing again cancels the previous generation and starts a new one.
-
-The implementation also handles repeated model output, `<think>` blocks, formatting artifacts, cursor movement, and aborted requests.
+- `suggest.engine.ts` is pure and testable with plain Node. It only looks at the last word of the input and only when the cursor is attached to it (nothing is suggested after a space or punctuation).
+- Ranking: character names > words already used in the script > base vocabulary; shorter completions win ties.
+- Typo corrections (Damerau-Levenshtein distance ≤ 1, or ≤ 2 for words of 8+ letters) are only offered when the typed text does not complete any known word.
 
 ---
 
 ## Data Model
 
-The database separates scripts, characters, and individual lines.
+The database separates projects, scripts, characters, and individual lines.
 
 ```text
 profiles
+   │
+   ├── projects
+   │      │
+   │      └── (scripts.project_id, optional)
    │
    └── scripts
           │
@@ -271,6 +230,10 @@ profiles
           │
           └── script_lines
 ```
+
+- `scripts.project_id` is nullable and uses `ON DELETE SET NULL`, so deleting a project keeps its scripts.
+- Project names are unique per user (case-insensitive).
+- `scripts.name_en` and `script_lines.content_en` hold the English version. They are nullable: `NULL` means "not translated yet". Characters, scenes, order and line types are shared by both languages.
 
 `script_lines.line_type` can contain:
 
@@ -308,6 +271,16 @@ POST /api/script/save
 POST /api/script/delete
 ```
 
+### Projects
+
+```text
+POST /api/project/create
+POST /api/project/rename
+POST /api/project/delete
+```
+
+Projects are listed server-side (`get_user_projects`) when the script list and the editor render. Deleting a project does not delete its scripts.
+
 The save endpoint validates the request body with Zod before calling the database RPC function.
 
 Authentication-sensitive API routes first validate the session using the shared `require_auth()` helper.
@@ -323,24 +296,20 @@ src/
 │   │   ├── CharacterMenu.svelte
 │   │   ├── ScriptEditor.svelte
 │   │   ├── ScriptHeader.svelte
+│   │   ├── ProjectPicker.svelte
 │   │   ├── ScriptInputZone.svelte
 │   │   ├── ScriptLines.svelte
-│   │   └── ScriptOnboarding.svelte
+│   │   ├── ScriptOnboarding.svelte
+│   │   └── SuggestionBar.svelte
 │   ├── ScriptList/
 │   │   └── ScriptList.svelte
-│   ├── ui/
-│   │   └── Icon.svelte
-│   └── PredictorToggle.svelte
+│   └── ui/
+│       └── Icon.svelte
 │
 ├── lib/
-│   ├── predictor/
-│   │   ├── ghost_input.svelte.ts
-│   │   ├── predictor.client.ts
-│   │   ├── predictor.debug.ts
-│   │   ├── predictor.store.svelte.ts
-│   │   ├── predictor.support.ts
-│   │   ├── predictor.types.ts
-│   │   └── predictor.worker.ts
+│   ├── suggest/
+│   │   ├── spanish_words.ts
+│   │   └── suggest.engine.ts
 │   ├── script.store.svelte.ts
 │   └── script.utils.ts
 │
@@ -386,22 +355,16 @@ The editor intentionally keeps the domain logic separate from the UI components:
 
 - `script.store.svelte.ts` manages editor state and operations.
 - `script.utils.ts` contains pure script/export utilities.
-- `ghost_input.svelte.ts` implements reusable ghost-text behavior.
-- `predictor.types.ts` defines the engine-independent predictor contract.
-- `predictor.client.ts` contains the concrete WebLLM implementation.
-- `predictor.worker.ts` isolates the inference engine from the main thread.
-- `predictor.store.svelte.ts` owns predictor lifecycle and state.
-
-This separation makes the AI feature optional and keeps the core editor usable without it.
+- `suggest.engine.ts` implements word completion and typo correction.
+- `spanish_words.ts` holds the built-in Spanish vocabulary.
 
 ---
 
 ## Current Limitations
 
-- The AI predictor requires WebGPU.
-- iOS is currently excluded from AI autocomplete support.
-- The configured model is intentionally small; suggestion quality depends on the capabilities of the local model.
-- The current editor has one active AI-powered input, so the predictor store does not implement a generation queue for multiple simultaneous inputs.
+- Suggestions are Spanish-only and word-level (no next-word prediction); the English tab has no suggestion bar.
+- Editing a Spanish line after translating it does not mark its English text as outdated.
+- Character names are shared between languages (there is no per-language name).
 
 ---
 

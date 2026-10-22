@@ -1,4 +1,3 @@
-
 <script>
   // ScriptLines.svelte — área scrolleable de líneas
   import { char_color } from "@lib/script.utils";
@@ -33,6 +32,21 @@
     clearTimeout(long_press_timer);
   }
 
+  // Traducción: Enter guarda y salta a la siguiente línea (flujo rápido de
+  // revisión); Escape descarta el cambio de esa línea.
+  function handle_en_keydown(e, index, original_text) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const next = store.full_script.findIndex((l, i) => i > index && !l.is_scene);
+      const target = next === -1 ? null : document.getElementById(`script-en-${next}`);
+      if (target) { target.focus(); target.scrollIntoView({ block: "center", behavior: "smooth" }); }
+      else e.currentTarget.blur();
+    } else if (e.key === "Escape") {
+      e.currentTarget.value = original_text;
+      e.currentTarget.blur();
+    }
+  }
+
   function handle_line_keydown(e, original_text) {
     if (e.key === "Enter") {
       e.currentTarget.blur();
@@ -43,11 +57,37 @@
   }
 </script>
 
+{#snippet meta(line)}
+  <div class="line-meta" class:context-meta={line.is_context}>
+    {#if !line.is_context}
+      <span
+        class="line-character"
+        style={`color: ${char_color(line.character_index, store.characters.length)}`}
+      >
+        {store.characters[line.character_index]?.name ?? "?"}
+      </span>
+    {/if}
+    <span
+      class="line-badge"
+      class:badge-dialogue={!line.is_context && (line.line_type === "dialogue" || !line.line_type)}
+      class:badge-thought={line.line_type === "thought"}
+      class:badge-narration={line.line_type === "narration"}
+      class:badge-context={line.is_context}
+    >
+      {#if line.is_context}
+        {TYPE_BADGE.context.emoji} {TYPE_BADGE.context.label}
+      {:else}
+        {TYPE_BADGE[line.line_type ?? "dialogue"].emoji} {TYPE_BADGE[line.line_type ?? "dialogue"].label}
+      {/if}
+    </span>
+  </div>
+{/snippet}
+
 <div class="lines-area" bind:this={store.lines_area_el} style="--label-w: {store.label_width}px">
   {#if store.full_script.length === 0}
     <div class="empty-state">
       <p class="empty-title">El script está vacío</p>
-      <p class="empty-sub">Selecciona un personaje y empieza a escribir abajo</p>
+      <p class="empty-sub">{store.lang === "en" ? "Escribe primero el guion en Español; después lo traduces acá" : "Selecciona un personaje y empieza a escribir abajo"}</p>
     </div>
   {/if}
 
@@ -55,12 +95,35 @@
     {#if line.is_scene}
       <div class="scene-separator" bind:this={scene_refs[index]}>
         <div class="scene-separator-inner">
-          <span class="scene-label">Escena {line.scene_number}</span>
+          <span class="scene-label">{store.lang === "en" ? "Scene" : "Escena"} {line.scene_number}</span>
           <div class="scene-line"></div>
-          <button class="scene-delete" onclick={() => store.delete_scene(index)}
-            aria-label="Eliminar escena {line.scene_number}" title="Eliminar escena">
-            <Icon name="x" size={10} stroke_width={3} />
-          </button>
+          {#if store.lang === "es"}
+            <button class="scene-delete" onclick={() => store.delete_scene(index)}
+              aria-label="Eliminar escena {line.scene_number}" title="Eliminar escena">
+              <Icon name="x" size={10} stroke_width={3} />
+            </button>
+          {/if}
+        </div>
+      </div>
+    {:else if store.lang === "en"}
+      <div class="script-line en-line" class:en-missing={!(line.text_en ?? "").trim()} data-line-index={index}>
+        {@render meta(line)}
+        <div class="en-pair">
+          <span class="es-ref" class:es-ref-italic={line.is_context || line.line_type === "thought" || line.line_type === "narration"}>{line.text}</span>
+          <input
+            id={`script-en-${index}`}
+            class="line-input en-input"
+            class:context-input={line.is_context}
+            class:thought-input={line.line_type === "thought"}
+            class:narration-input={line.line_type === "narration"}
+            value={line.text_en ?? ""}
+            placeholder="Translation…"
+            onblur={(e) => store.update_line_en(e.target.value, index)}
+            onkeydown={(e) => handle_en_keydown(e, index, line.text_en ?? "")}
+            autocomplete="off"
+            spellcheck="true"
+            lang="en"
+          />
         </div>
       </div>
     {:else}
@@ -83,30 +146,7 @@
           <Icon name="plus" size={9} stroke_width={2.5} />escena
         </button>
 
-        <!-- Label + badge -->
-        <div class="line-meta" class:context-meta={line.is_context}>
-          {#if !line.is_context}
-            <span
-              class="line-character"
-              style={`color: ${char_color(line.character_index, store.characters.length)}`}
-            >
-              {store.characters[line.character_index]?.name ?? "?"}
-            </span>
-          {/if}
-          <span
-            class="line-badge"
-            class:badge-dialogue={!line.is_context && (line.line_type === "dialogue" || !line.line_type)}
-            class:badge-thought={line.line_type === "thought"}
-            class:badge-narration={line.line_type === "narration"}
-            class:badge-context={line.is_context}
-          >
-            {#if line.is_context}
-              {TYPE_BADGE.context.emoji} {TYPE_BADGE.context.label}
-            {:else}
-              {TYPE_BADGE[line.line_type ?? "dialogue"].emoji} {TYPE_BADGE[line.line_type ?? "dialogue"].label}
-            {/if}
-          </span>
-        </div>
+        {@render meta(line)}
 
         <input
           name={`script${index}`}
@@ -216,9 +256,17 @@
   .line-selected .line-badge { background: color-mix(in srgb, var(--error-text) 15%, transparent) !important; color: var(--error-text) !important; }
   .line-selected .line-input { color: var(--error-text) !important; }
 
+  /* ── Pestaña English ── */
+  .en-line { align-items: flex-start; padding: 5px 0 5px 8px; border-left: 2px solid transparent; }
+  .en-missing { border-left-color: var(--accent); }
+  .en-line .line-meta { padding-top: 4px; }
+  .en-pair { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .es-ref { font-size: 12px; line-height: 1.4; color: var(--text-muted); padding: 0 10px; overflow-wrap: anywhere; }
+  .es-ref-italic { font-style: italic; }
+  .en-input { width: 100%; background: var(--bg-subtle); border-color: var(--border); }
+  .en-input::placeholder { color: var(--text-placeholder); }
+
   .context-line { margin: 2px 0; }
   .thought-line { margin: 1px 0; }
   .narration-line { margin: 1px 0; }
 </style>
-
-

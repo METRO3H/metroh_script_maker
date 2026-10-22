@@ -1,7 +1,5 @@
-
 ---
 import ScriptEditor from "@components/ScriptEditor/ScriptEditor.svelte";
-import PredictorToggle from "@components/PredictorToggle.svelte";
 import Layout from "@layouts/MainLayout.astro";
 import { require_auth, clear_auth } from "@utils/auth";
 
@@ -19,6 +17,17 @@ if (script_id) {
   const { data, error } = await auth.supabase.rpc("get_script_detail", { p_script_id: script_id });
   if (!error && data) initialScript = data;
 }
+
+const { data: projects } = await auth.supabase.rpc("get_user_projects");
+const initialProjects = projects ?? [];
+
+// "+ Script" desde un proyecto de la lista llega con ?project=<id>. Solo se
+// respeta si ese proyecto realmente es del usuario.
+const requested_project = Astro.url.searchParams.get("project");
+const defaultProjectId =
+  requested_project && initialProjects.some((p: { id: string }) => p.id === requested_project)
+    ? requested_project
+    : null;
 ---
 
 <Layout title={initialScript ? `Editando: ${initialScript.name}` : "Nuevo script"}>
@@ -40,8 +49,6 @@ if (script_id) {
         </a>
 
         <span class="app-user-email">{user.email}</span>
-
-        <PredictorToggle client:load />
 
         <button class="theme-toggle" aria-label="Cambiar tema">
           <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="15" height="15"
@@ -65,7 +72,7 @@ if (script_id) {
 
     <main class="dashboard-main">
       <div class="editor-card card">
-        <ScriptEditor client:load initialScript={initialScript} />
+        <ScriptEditor client:load initialScript={initialScript} initialProjects={initialProjects} defaultProjectId={defaultProjectId} />
       </div>
     </main>
   </div>
@@ -77,5 +84,3 @@ if (script_id) {
   .editor-card { width: 100%; max-width: 820px; height: calc(100vh - 96px); display: flex; flex-direction: column; overflow: hidden; }
   .btn-sm { font-size: 10px; padding: 5px 12px; }
 </style>
-
-

@@ -1,26 +1,34 @@
-
 // src/lib/script.store.svelte.ts
 import { tick } from "svelte";
-import type { Character, ScriptLine } from "@types/script";
+import type { Character, Lang, Project, ScriptLine } from "@types/script";
 import { export_txt, export_json } from "@lib/script.utils";
+import { create_suggester } from "@lib/suggest/suggest.engine";
 
 function init_state(script: any) {
-  if (!script) return { id: null, title: "", characters: [], lines: [] };
+  if (!script) return { id: null, title: "", title_en: "", project_id: null, characters: [], lines: [] };
   const chars: Character[] = (script.characters ?? []).map((c: any, i: number) => ({ name: c.name, id: i + 1 }));
   const char_index = Object.fromEntries(chars.map((c, i) => [c.name, i]));
   const lines: ScriptLine[] = (script.lines ?? []).map((l: any) => {
     if (l.line_type === "scene") return { is_scene: true, scene_number: l.scene_number } as ScriptLine;
-    if (l.line_type === "context") return { is_context: true, character_index: -1, text: l.content } as ScriptLine;
-    return { character_index: char_index[l.character_name] ?? 0, text: l.content, line_type: l.line_type ?? "dialogue" } as ScriptLine;
+    if (l.line_type === "context") return { is_context: true, character_index: -1, text: l.content, text_en: l.content_en ?? "" } as ScriptLine;
+    return { character_index: char_index[l.character_name] ?? 0, text: l.content, text_en: l.content_en ?? "", line_type: l.line_type ?? "dialogue" } as ScriptLine;
   });
-  return { id: script.id, title: script.name, characters: chars, lines };
+  return { id: script.id, title: script.name, title_en: script.name_en ?? "", project_id: script.project_id ?? null, characters: chars, lines };
 }
 
-export function create_script_store(initialScript: any = null) {
+export function create_script_store(
+  initialScript: any = null,
+  initialProjects: Project[] = [],
+  defaultProjectId: string | null = null,
+) {
   const init = init_state(initialScript);
 
   let script_id         = $state<string | null>(init.id);
   let script_title      = $state<string>(init.title);
+  let script_title_en   = $state<string>(init.title_en);
+  let lang              = $state<Lang>("es");
+  let project_id        = $state<string | null>(init.project_id ?? (initialScript ? null : defaultProjectId));
+  let projects          = $state<Project[]>(initialProjects);
   let characters        = $state<Character[]>(init.characters);
   let full_script       = $state<ScriptLine[]>(init.lines);
   let current_input     = $state<string>("");
@@ -38,6 +46,31 @@ export function create_script_store(initialScript: any = null) {
   let rect_cur_y        = $state<number>(0);
   let lines_area_el     = $state<HTMLElement | null>(null);
   let toast_timeout: ReturnType<typeof setTimeout> | null = null;
+
+  // ── Sugerencias de palabras (local, sin IA) ──────────────────
+  // El suggester no es reactivo por sí mismo: vocab_version sube cada vez
+  // que aprende algo nuevo para que `suggestions` se recalcule.
+  const suggester = create_suggester();
+  let vocab_version = $state(0);
+
+  function learn_from(text: string | undefined) {
+    if (!text) return;
+    suggester.learn(text);
+    vocab_version++;
+  }
+  // Vocabulario inicial: lo que ya tiene el guion al abrirlo.
+  suggester.learn_names(init.characters.map((c) => c.name));
+  for (const l of init.lines) if (!l.is_scene) suggester.learn(l.text ?? "");
+
+  let suggestions = $derived.by(() => {
+    vocab_version;
+    suggester.learn_names(characters.map((c) => c.name));
+    return lang === "es" ? suggester.suggest(current_input) : [];
+  });
+
+  function apply_suggestion(word: string) {
+    current_input = capitalize_first(suggester.apply(current_input, word));
+  }
   const RECT_THRESHOLD = 6;
   const LABEL_MAX_PX = 96;
   const CHAR_PX = 7.5;
@@ -54,6 +87,9 @@ export function create_script_store(initialScript: any = null) {
     const longest = characters.reduce((max, c) => Math.max(max, c.name.length), "contexto".length);
     return Math.min(Math.ceil(longest * CHAR_PX), LABEL_MAX_PX);
   });
+
+  let translatable_count = $derived(full_script.filter((l) => !l.is_scene).length);
+  let translated_count = $derived(full_script.filter((l) => !l.is_scene && (l.text_en ?? "").trim() !== "").length);
 
   let current_scene_number = $derived.by(() => {
     const scenes = full_script.filter((l) => l.is_scene);
@@ -125,11 +161,59 @@ export function create_script_store(initialScript: any = null) {
     } else {
       full_script = [...full_script, { character_index: current_character, text: input, line_type: current_type }];
     }
+    learn_from(input);
     current_input = "";
   }
 
   function update_line(new_text: string, i: number) {
-    full_script = full_script.map((s, index) => (index === i ? { ...s, text: capitalize_first(new_text) } : s));
+    const next = capitalize_first(new_text);
+    if (full_script[i]?.text !== next) learn_from(next);
+    full_script = full_script.map((s, index) => (index === i ? { ...s, text: next } : s));
+  }
+
+  // ── Versión en inglés ────────────────────────────────────────
+  // La estructura (escenas, personajes, orden, tipos) es una sola y se
+  // edita en español; el inglés solo es el texto de cada línea.
+  function set_lang(next: Lang) {
+    if (next === lang) return;
+    if (select_mode) exit_select_mode();
+    lang = next;
+  }
+
+  function update_line_en(new_text: string, i: number) {
+    const next = new_text.trim();
+    if ((full_script[i]?.text_en ?? "") === next) return;
+    full_script = full_script.map((s, index) => (index === i ? { ...s, text_en: next } : s));
+  }
+
+  function focus_first_untranslated() {
+    const idx = full_script.findIndex((l) => !l.is_scene && (l.text_en ?? "").trim() === "");
+    if (idx === -1) return;
+    const el = document.getElementById(`script-en-${idx}`) as HTMLInputElement | null;
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    el?.focus();
+  }
+
+  // ── Proyectos ────────────────────────────────────────────────
+  function set_project(id: string | null) { project_id = id; }
+
+  async function create_project(name: string): Promise<boolean> {
+    const clean = name.trim();
+    if (!clean) return false;
+    try {
+      const res = await fetch("/api/project/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: clean }),
+      });
+      if (!res.ok) return false;
+      const { project_id: new_id } = await res.json();
+      projects = [...projects, { id: new_id, name: clean }].sort((a, b) => a.name.localeCompare(b.name, "es"));
+      project_id = new_id;
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function delete_line(index: number) {
@@ -190,6 +274,7 @@ export function create_script_store(initialScript: any = null) {
 
   function on_mousedown(e: MouseEvent) {
     if (e.button !== 0) return;
+    if (lang === "en") return; // la selección múltiple borra líneas: solo en español
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "BUTTON" || tag === "A" || (e.target as HTMLElement).closest("dialog")) return;
     if (select_mode && (e.target as HTMLElement).closest("[data-line-index]")) return;
@@ -217,11 +302,14 @@ export function create_script_store(initialScript: any = null) {
         body: JSON.stringify({
           script_id,
           script_name: script_title,
+          script_name_en: script_title_en.trim() || null,
+          project_id,
           characters: characters.map((c) => c.name),
           lines: full_script.map((line, i) => {
             if (line.is_scene) return { line_number: i + 1, line_type: "scene", scene_number: line.scene_number };
-            if (line.is_context) return { line_number: i + 1, line_type: "context", content: line.text };
-            return { line_number: i + 1, line_type: line.line_type ?? "dialogue", character_name: characters[line.character_index].name, content: line.text };
+            const content_en = (line.text_en ?? "").trim() || undefined;
+            if (line.is_context) return { line_number: i + 1, line_type: "context", content: line.text, content_en };
+            return { line_number: i + 1, line_type: line.line_type ?? "dialogue", character_name: characters[line.character_index].name, content: line.text, content_en };
           }),
         }),
       });
@@ -252,13 +340,24 @@ export function create_script_store(initialScript: any = null) {
     $effect(() => { is_mounted = true; });
   }
 
-  function do_export_txt() { export_txt(full_script, characters, script_title); }
-  function do_export_json() { export_json(full_script, characters, script_title, script_id); }
+  function do_export_txt() {
+    if (lang === "en") export_txt(full_script, characters, script_title_en || script_title, "en");
+    else export_txt(full_script, characters, script_title, "es");
+  }
+  function do_export_json() { export_json(full_script, characters, script_title, script_title_en, script_id); }
 
   return {
     get script_id()            { return script_id; },
     get script_title()         { return script_title; },
     set script_title(v)        { script_title = v; },
+    get script_title_en()      { return script_title_en; },
+    set script_title_en(v)     { script_title_en = v; },
+    get lang()                 { return lang; },
+    get project_id()           { return project_id; },
+    get projects()             { return projects; },
+    get suggestions()          { return suggestions; },
+    get translatable_count()   { return translatable_count; },
+    get translated_count()     { return translated_count; },
     get characters()           { return characters; },
     set characters(v)          { characters = v; },
     get full_script()          { return full_script; },
@@ -284,6 +383,9 @@ export function create_script_store(initialScript: any = null) {
     set lines_area_el(v)       { lines_area_el = v; },
 
     handle_onboarding_done,
+    apply_suggestion,
+    set_lang, update_line_en, focus_first_untranslated,
+    set_project, create_project,
     insert_scene, delete_scene, scroll_to_scene,
     handle_delete_character,
     save_input, update_line, delete_line,
@@ -294,5 +396,3 @@ export function create_script_store(initialScript: any = null) {
     do_export_txt, do_export_json,
   };
 }
-
-

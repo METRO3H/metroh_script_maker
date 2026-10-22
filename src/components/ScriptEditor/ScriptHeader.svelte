@@ -1,15 +1,47 @@
 <script>
   // ScriptHeader.svelte — título + acciones del editor
   import Icon from "@components/ui/Icon.svelte";
+  import ProjectPicker from "./ProjectPicker.svelte";
 
   let { store } = $props();
+
+  const LANGS = [
+    { id: "es", label: "Español" },
+    { id: "en", label: "English" },
+  ];
 </script>
+
+<div class="lang-tabs" role="tablist" aria-label="Idioma del script">
+  {#each LANGS as l}
+    <button
+      type="button"
+      role="tab"
+      class="lang-tab"
+      class:lang-tab-active={store.lang === l.id}
+      aria-selected={store.lang === l.id}
+      onclick={() => store.set_lang(l.id)}
+    >
+      {l.label}
+      {#if l.id === "en" && store.translatable_count > 0}
+        <span class="lang-count">{store.translated_count}/{store.translatable_count}</span>
+      {/if}
+    </button>
+  {/each}
+  <div class="tabs-spacer"></div>
+  <ProjectPicker {store} />
+</div>
 
 <div class="editor-header">
   <div class="title-block">
-    <label for="script-title" class="field-label">Título</label>
-    <input id="script-title" type="text" class="title-input" placeholder="Sin título..."
-      bind:value={store.script_title} autocomplete="off" />
+    {#if store.lang === "es"}
+      <label for="script-title" class="field-label">Título</label>
+      <input id="script-title" type="text" class="title-input" placeholder="Sin título..."
+        bind:value={store.script_title} autocomplete="off" />
+    {:else}
+      <label for="script-title-en" class="field-label">Title <span class="field-ref">· {store.script_title || "sin título"}</span></label>
+      <input id="script-title-en" type="text" class="title-input" placeholder="Title in English..."
+        bind:value={store.script_title_en} autocomplete="off" />
+    {/if}
   </div>
 
   <div class="editor-actions">
@@ -54,7 +86,15 @@
 </div>
 
 <style>
-  .editor-header { display: flex; justify-content: space-between; align-items: flex-end; padding: 20px 24px 16px; gap: 16px; }
+  .lang-tabs { display: flex; align-items: flex-end; gap: 4px; padding: 12px 24px 0; }
+  .tabs-spacer { flex: 1; }
+  .lang-tab { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 7px 14px; border: 1px solid transparent; border-bottom: none; border-radius: var(--radius-md) var(--radius-md) 0 0; background: transparent; color: var(--text-muted); cursor: pointer; transition: color var(--transition), background var(--transition), border-color var(--transition); }
+  .lang-tab:hover { color: var(--text-primary); }
+  .lang-tab-active { color: var(--accent-text); background: var(--accent-muted); border-color: var(--accent); }
+  .lang-count { font-size: 9px; font-weight: 600; letter-spacing: 0.04em; opacity: 0.8; }
+  .field-ref { text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+  .editor-header { display: flex; justify-content: space-between; align-items: flex-end; padding: 14px 24px 16px; gap: 16px; }
   .title-block { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
   .field-label { font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
   .title-input { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; background: transparent; border: none; border-bottom: 2px solid var(--accent); border-radius: 0; color: var(--text-primary); padding: 4px 0; outline: none; width: 100%; transition: border-color var(--transition); }

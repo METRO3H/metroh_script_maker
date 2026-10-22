@@ -1,4 +1,3 @@
-
 <script>
   // ScriptEditor.svelte — orquestador
   import { untrack } from "svelte";
@@ -8,9 +7,9 @@
   import ScriptInputZone from "./ScriptInputZone.svelte";
   import { create_script_store } from "@lib/script.store.svelte";
 
-  let { initialScript = null } = $props();
+  let { initialScript = null, initialProjects = [], defaultProjectId = null } = $props();
 
-  const store = untrack(() => create_script_store(initialScript));
+  const store = untrack(() => create_script_store(initialScript, initialProjects, defaultProjectId));
 
   let scene_refs    = $state({});
   let char_menu     = $state(null);
@@ -37,6 +36,10 @@
       // no deben dispararse mientras se escribe en otro input (editar una
       // línea existente, agregar/renombrar un personaje, etc.).
       if (is_line_input) return;
+      // En la pestaña English no se toca la estructura (escenas, personajes,
+      // tipos de línea): esos atajos solo valen en español.
+      if (store.lang === "en" && e.shiftKey &&
+          ["Space", "NumpadAdd", "Enter", "NumpadEnter", "ArrowLeft", "ArrowRight", "KeyZ"].includes(e.code)) return;
       if (e.shiftKey && e.code === "Space" && !is_main_input) {
         e.preventDefault(); document.getElementById("script-input")?.focus(); return;
       }
@@ -136,5 +139,3 @@
   .btn-danger { background: var(--error-text); color: #fff; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 7px 16px; border-radius: var(--radius-md); border: none; cursor: pointer; transition: opacity var(--transition); }
   .btn-danger:hover { opacity: 0.85; }
 </style>
-
-

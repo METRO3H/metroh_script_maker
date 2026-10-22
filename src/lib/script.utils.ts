@@ -1,8 +1,7 @@
-
 // src/lib/script.utils.ts
 // Utilidades puras del dominio — sin estado, sin efectos secundarios
 
-import type { Character, ScriptLine } from "@types/script";
+import type { Character, Lang, ScriptLine } from "@types/script";
 
 // ── Colores dinámicos por personaje ──────────────────────────────
 // Hues equidistantes en HSL, offset 30° para evitar el violeta del accent (~265°)
@@ -34,17 +33,25 @@ export function download_file(content: string, filename: string, mime: string): 
 }
 
 // ── Exportar como .txt ───────────────────────────────────────────
-export function export_txt(lines: ScriptLine[], characters: Character[], title: string): void {
+// En inglés, una línea sin traducir sale con el texto en español entre
+// llaves dobles ({{...}}), para que se vea qué falta sin perder el orden.
+export function export_txt(lines: ScriptLine[], characters: Character[], title: string, lang: Lang = "es"): void {
   const header = `${title.toUpperCase()}\n${"─".repeat(48)}\n\n`;
+  const pick = (l: ScriptLine) => {
+    if (lang === "es") return l.text ?? "";
+    const en = (l.text_en ?? "").trim();
+    return en || `{{${l.text ?? ""}}}`;
+  };
   const content = lines
     .map((l) => {
-      if (l.is_scene) return `\n── ESCENA ${l.scene_number} ${"─".repeat(30)}\n`;
-      if (l.is_context) return `[${l.text}]`;
+      if (l.is_scene) return `\n── ${lang === "en" ? "SCENE" : "ESCENA"} ${l.scene_number} ${"─".repeat(30)}\n`;
+      if (l.is_context) return `[${pick(l)}]`;
       const prefix = TYPE_ICONS[l.line_type ?? "dialogue"];
-      return `${(characters[l.character_index]?.name ?? "?").toUpperCase()}\n   ${prefix}${l.text}`;
+      return `${(characters[l.character_index]?.name ?? "?").toUpperCase()}\n   ${prefix}${pick(l)}`;
     })
     .join("\n");
-  download_file(header + content, `${title || "script"}.txt`, "text/plain");
+  const suffix = lang === "en" ? "_en" : "";
+  download_file(header + content, `${title || "script"}${suffix}.txt`, "text/plain");
 }
 
 // ── Exportar como .json ──────────────────────────────────────────
@@ -52,6 +59,7 @@ export function export_json(
   lines: ScriptLine[],
   characters: Character[],
   title: string,
+  title_en: string,
   script_id: string | null,
 ): void {
   const scenes: object[][] = [];
@@ -70,12 +78,13 @@ export function export_json(
         scenes.push(current_scene);
       }
       if (line.is_context) {
-        current_scene.push({ type: "context", content: line.text });
+        current_scene.push({ type: "context", content: line.text, content_en: line.text_en || null });
       } else {
         current_scene.push({
           type: line.line_type ?? "dialogue",
           character: characters[line.character_index]?.name ?? "?",
           content: line.text,
+          content_en: line.text_en || null,
         });
       }
     }
@@ -83,7 +92,7 @@ export function export_json(
 
   download_file(
     JSON.stringify(
-      { id: script_id, name: title, characters: characters.map((c) => c.name), scenes },
+      { id: script_id, name: title, name_en: title_en || null, characters: characters.map((c) => c.name), scenes },
       null,
       2,
     ),
@@ -91,5 +100,3 @@ export function export_json(
     "application/json",
   );
 }
-
-
