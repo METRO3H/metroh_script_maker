@@ -366,10 +366,6 @@ The editor intentionally keeps the domain logic separate from the UI components:
 - Editing a Spanish line after translating it does not mark its English text as outdated.
 - Character names are shared between languages (there is no per-language name).
 
----
+## Author
 
-## License
-
-No license has been specified yet.
-
-If this repository is intended for public distribution, add a license file such as `LICENSE` and update this section accordingly.
+[METRO3H](https://github.com/METRO3H)
