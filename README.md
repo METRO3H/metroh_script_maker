@@ -1,3 +1,4 @@
+
 # Metroh Script Maker
 
 ![Astro](https://img.shields.io/badge/Astro-6-BC52EE?logo=astro&logoColor=white)
@@ -30,10 +31,12 @@ Metroh Script Maker combines a focused script-writing interface with account-bas
 - Navigate between scenes without manually searching through the script.
 
 ### Word suggestions (no AI)
-- A suggestion bar above the script input, like a phone keyboard: up to three chips that complete the word being typed or fix a likely typo.
+- A suggestion bar right below the script input, like a phone keyboard: up to five chips that complete the word being typed or fix a likely typo.
 - Fully local and deterministic: no model download, no network requests, no WebGPU. Works on every device, including iOS.
-- Conservative by design: it never edits the text on its own. A chip is applied only when tapped (or with `Tab` for the first one).
-- Learns from the script itself: words from existing lines and character names rank above the built-in Spanish word list (`src/lib/suggest/spanish_words.ts`, easy to extend).
+- Conservative by design: it never edits the text on its own. A chip is applied only when tapped or with `Tab`; pressing `Tab` again swaps it for the next suggestion (`Shift + Tab` goes back).
+- Words you use that are not in the dictionary (names, slang, invented terms) are remembered when you save the script and suggested from then on, in any script. They are stored per browser (`localStorage`), and a word that appears once and is one letter away from a known word is treated as a typo and skipped.
+- Learns from the script itself: words from existing lines and character names rank above the built-in Spanish word list.
+- The word list is **not in the code**: it lives in plain text files under `public/words/` (`es.txt`, ~209k words, and `es.custom.txt` for your own words — see "Adding words" below).
 - Handles accent restoration (`estacion` → `estación`) and one/two-letter typos (`habalr` → `hablar`).
 
 ### Projects
@@ -182,9 +185,13 @@ The editor includes several productivity shortcuts.
 | `Shift + Arrow Down` | Go to the next scene |
 | `Shift + Arrow Left` | Select the previous character |
 | `Shift + Arrow Right` | Select the next character |
-| `Shift + Z` | Cycle through dialogue → thought → narration → context |
+| `Alt + Z` | Cycle through dialogue → thought → narration → context (works while typing) |
+| `Shift + Z` | Same as `Alt + Z`, but only outside the main input (there it would block typing a capital Z) |
+| `Alt + Arrow Up/Down` | While editing a line: move that line up / down one place |
 | `Escape` | Close menus / dialogs or exit selection mode |
-| `Tab` | Accept the first word suggestion (only while the suggestion bar has one) |
+| `Tab` | Apply the first word suggestion; press again to cycle to the next one (only while the suggestion bar has one) |
+| `Shift + Tab` | Go back to the previous suggestion while cycling |
+| `?` | Show the keyboard shortcuts help (also the keyboard button in the header) |
 
 `Ctrl + S` becomes `Cmd + S` on macOS.
 
@@ -204,11 +211,18 @@ script.store.svelte.ts  (vocab version + `suggestions` derived)
 suggest.engine.ts  (pure TypeScript, no DOM, no Svelte)
       │
       ▼
-spanish_words.ts  (base vocabulary)
+word_files.ts ──► public/words/es.txt + es.custom.txt  (fetched once, cached by the browser)
 ```
 
 - `suggest.engine.ts` is pure and testable with plain Node. It only looks at the last word of the input and only when the cursor is attached to it (nothing is suggested after a space or punctuation).
-- Ranking: character names > words already used in the script > base vocabulary; shorter completions win ties.
+- Ranking: character names > words already used in the script > your custom words > words learned on save > base vocabulary (ordered by frequency); shorter completions win ties.
+- The dictionary is indexed by the first two letters, so each keystroke only scans a small slice of the ~209k words (≈ 3 ms on average).
+
+#### Adding words
+
+- **Your own words** (slang, catchphrases, place names): add them to `public/words/es.custom.txt`, one per line (`#` starts a comment). Reload the page. No code changes.
+- **Another file** (for example a glossary for one story): drop it in `public/words/` and add it to `WORD_FILES` in `src/lib/suggest/word_files.ts`.
+- **Regenerating the big dictionary**: `scripts/build_spanish_words.py` rebuilds `es.txt` from word-frequency data (OpenSubtitles) validated against a Spanish dictionary; its header explains how to get the inputs and which thresholds to tune. `es.txt` is derived from FrequencyWords (CC BY-SA 4.0) — keep the attribution in its header.
 - Typo corrections (Damerau-Levenshtein distance ≤ 1, or ≤ 2 for words of 8+ letters) are only offered when the typed text does not complete any known word.
 
 ---
@@ -308,8 +322,8 @@ src/
 │
 ├── lib/
 │   ├── suggest/
-│   │   ├── spanish_words.ts
-│   │   └── suggest.engine.ts
+│   │   ├── suggest.engine.ts
+│   │   └── word_files.ts
 │   ├── script.store.svelte.ts
 │   └── script.utils.ts
 │
@@ -369,3 +383,5 @@ The editor intentionally keeps the domain logic separate from the UI components:
 ## Author
 
 [METRO3H](https://github.com/METRO3H)
+
+

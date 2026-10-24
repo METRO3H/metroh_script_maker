@@ -1,4 +1,5 @@
 
+
 <script>
    // CharacterMenu.svelte
    import { char_color } from "@lib/script.utils";
@@ -238,7 +239,7 @@
    :global([data-theme="dark"]) { --type-dialogue: #818cf8; --type-thought: #d8b4fe; --type-narration: #fdba74; }
 
    .char-menu-wrapper { display: flex; flex-direction: column; }
-   .menu-bar { display: flex; align-items: center; gap: 4px; padding: 6px 10px; background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); flex-wrap: wrap; }
+   .menu-bar { display: flex; align-items: center; gap: 4px; padding: 3px 8px; background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-md); flex-wrap: wrap; }
    .bar-divider { width: 1px; height: 18px; background: var(--border-strong); margin: 0 4px; flex-shrink: 0; }
 
    .type-selector { position: relative; flex-shrink: 0; }
@@ -294,5 +295,7 @@
 
    @keyframes toast-in { from { opacity: 0; transform: translateY(4px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
 </style>
+
+
 
 

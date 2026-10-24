@@ -1,6 +1,8 @@
+
 ---
 // MainLayout.astro
 import "@styles/global.css";
+import ToastHost from "@components/ui/ToastHost.svelte";
 const { title } = Astro.props;
 ---
 
@@ -30,6 +32,9 @@ const { title } = Astro.props;
 
   <body>
     <slot />
+
+    <!-- Toasts globales de la página (ver src/lib/toast.svelte.ts) -->
+    <ToastHost client:load />
 
     <!-- Script de toggle: escucha clicks en cualquier .theme-toggle de la página -->
     <script>
@@ -67,3 +72,4 @@ const { title } = Astro.props;
     </script>
   </body>
 </html>
+

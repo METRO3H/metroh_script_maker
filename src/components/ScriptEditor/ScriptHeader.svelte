@@ -1,7 +1,9 @@
+
 <script>
   // ScriptHeader.svelte — título + acciones del editor
   import Icon from "@components/ui/Icon.svelte";
   import ProjectPicker from "./ProjectPicker.svelte";
+  import ShortcutsHelp from "./ShortcutsHelp.svelte";
 
   let { store } = $props();
 
@@ -28,19 +30,37 @@
     </button>
   {/each}
   <div class="tabs-spacer"></div>
+  <div class="view-toggle" role="group" aria-label="Vista del script">
+    <button type="button" class="view-opt" class:view-opt-active={store.view_mode === "normal"}
+      aria-pressed={store.view_mode === "normal"} onclick={() => store.set_view_mode("normal")}
+      title="Vista normal">
+      <Icon name="lines" size={12} />Normal
+    </button>
+    <button type="button" class="view-opt" class:view-opt-active={store.view_mode === "json"}
+      aria-pressed={store.view_mode === "json"} onclick={() => store.set_view_mode("json")}
+      title="Ver y editar el script como JSON">
+      <Icon name="braces" size={12} />JSON
+    </button>
+  </div>
+  <ShortcutsHelp />
   <ProjectPicker {store} />
 </div>
 
 <div class="editor-header">
   <div class="title-block">
+    <!-- En la vista JSON el título se muestra bloqueado con las mismas medidas
+         que el input, para que el header no cambie de alto al alternar vistas;
+         se edita desde el JSON ("name"). -->
     {#if store.lang === "es"}
-      <label for="script-title" class="field-label">Título</label>
-      <input id="script-title" type="text" class="title-input" placeholder="Sin título..."
-        bind:value={store.script_title} autocomplete="off" />
+      <label for="script-title" class="field-label">Título{#if store.view_mode === "json"}<span class="field-ref"> · se edita en el JSON</span>{/if}</label>
+      <input id="script-title" type="text" class="title-input" class:title-locked={store.view_mode === "json"}
+        placeholder="Sin título..." bind:value={store.script_title} autocomplete="off"
+        readonly={store.view_mode === "json"} tabindex={store.view_mode === "json" ? -1 : 0} />
     {:else}
-      <label for="script-title-en" class="field-label">Title <span class="field-ref">· {store.script_title || "sin título"}</span></label>
-      <input id="script-title-en" type="text" class="title-input" placeholder="Title in English..."
-        bind:value={store.script_title_en} autocomplete="off" />
+      <label for="script-title-en" class="field-label">Title <span class="field-ref">· {store.script_title || "sin título"}{store.view_mode === "json" ? " · edit it in the JSON" : ""}</span></label>
+      <input id="script-title-en" type="text" class="title-input" class:title-locked={store.view_mode === "json"}
+        placeholder="Title in English..." bind:value={store.script_title_en} autocomplete="off"
+        readonly={store.view_mode === "json"} tabindex={store.view_mode === "json" ? -1 : 0} />
     {/if}
   </div>
 
@@ -88,6 +108,10 @@
 <style>
   .lang-tabs { display: flex; align-items: flex-end; gap: 4px; padding: 12px 24px 0; }
   .tabs-spacer { flex: 1; }
+  .view-toggle { display: inline-flex; align-self: center; margin-bottom: 4px; margin-right: 6px; padding: 2px; gap: 2px; background: var(--bg-muted); border: 1px solid var(--border); border-radius: var(--radius-md); }
+  .view-opt { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 10px; border: none; border-radius: calc(var(--radius-md) - 2px); background: transparent; color: var(--text-secondary); cursor: pointer; transition: background var(--transition), color var(--transition); }
+  .view-opt:hover { color: var(--text-primary); }
+  .view-opt-active { background: var(--surface); color: var(--accent-text); box-shadow: var(--shadow-sm); }
   .lang-tab { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 7px 14px; border: 1px solid transparent; border-bottom: none; border-radius: var(--radius-md) var(--radius-md) 0 0; background: transparent; color: var(--text-muted); cursor: pointer; transition: color var(--transition), background var(--transition), border-color var(--transition); }
   .lang-tab:hover { color: var(--text-primary); }
   .lang-tab-active { color: var(--accent-text); background: var(--accent-muted); border-color: var(--accent); }
@@ -100,6 +124,7 @@
   .title-input { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; background: transparent; border: none; border-bottom: 2px solid var(--accent); border-radius: 0; color: var(--text-primary); padding: 4px 0; outline: none; width: 100%; transition: border-color var(--transition); }
   .title-input::placeholder { color: var(--text-placeholder); font-weight: 400; }
   .title-input:focus { border-bottom-color: var(--accent-hover); }
+  .title-locked { color: var(--text-muted); border-bottom-color: var(--border); cursor: default; }
   .editor-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
   .btn-sm { font-size: 10px; padding: 5px 10px; gap: 5px; }
 
@@ -118,3 +143,5 @@
   .delete-batch-btn:hover:not(:disabled) { opacity: 0.85; }
   .delete-batch-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
+
+

@@ -1,3 +1,4 @@
+
 <!-- src/components/ScriptEditor/ScriptInputZone.svelte -->
 <script>
    // ScriptInputZone.svelte — CharacterMenu + input de escritura (español)
@@ -15,11 +16,11 @@
          store.save_input();
          return;
       }
-      // Tab acepta la primera sugerencia (solo si hay una; si no, Tab sigue
-      // moviendo el foco como siempre).
-      if (e.code === "Tab" && !e.shiftKey && !e.isComposing && store.suggestions.length > 0) {
-         e.preventDefault();
-         store.apply_suggestion(store.suggestions[0].word);
+      // Tab aplica la primera sugerencia y, apretado de nuevo, pasa a la
+      // siguiente (Shift+Tab, a la anterior). Sin sugerencias, Tab sigue
+      // moviendo el foco como siempre.
+      if (e.code === "Tab" && !e.isComposing && store.suggestions.length > 0) {
+         if (store.cycle_suggestion(e.shiftKey ? -1 : 1)) e.preventDefault();
       }
    }
 </script>
@@ -33,7 +34,6 @@
          bind:current_type={store.current_type}
          ondelete_character={store.handle_delete_character}
       />
-      <SuggestionBar suggestions={store.suggestions} onpick={store.apply_suggestion} />
       <input
          id="script-input"
          class="current-input"
@@ -52,6 +52,8 @@
          spellcheck="true"
          enterkeyhint="send"
       />
+      <!-- Debajo del input, como en el teclado del celular. Altura fija: no mueve el layout. -->
+      <SuggestionBar suggestions={store.suggestions} active={store.active_suggestion} onpick={store.apply_suggestion} />
    </div>
 {:else}
    <div class="input-zone en-zone">
@@ -78,15 +80,16 @@
    .input-zone {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      padding: 16px 24px 20px;
+      gap: 6px;
+      /* Compacto: el footer ocupa lo mínimo y deja más espacio al guion. */
+      padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
    }
    .current-input {
       width: 100%;
       background: var(--bg-subtle);
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      padding: 10px 14px;
+      padding: 7px 12px;
       font-family: var(--font-mono);
       font-size: 13px;
       color: var(--text-primary);
@@ -133,3 +136,5 @@
       cursor: not-allowed;
    }
 </style>
+
+
