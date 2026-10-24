@@ -80,7 +80,10 @@ export function edit_distance(a: string, b: string, max: number): number {
 }
 
 function match_case(typed: string, word: string): string {
-  if (typed.length > 1 && typed === typed.toUpperCase()) return word.toUpperCase();
+  // Todo en mayúsculas solo si hay al menos dos letras en mayúscula ("I'" es una
+  // sola letra seguida de un apóstrofo: no es un grito).
+  const letters = typed.replace(/[^\p{L}]/gu, "");
+  if (letters.length > 1 && typed === typed.toUpperCase()) return word.toUpperCase();
   const first = typed.charAt(0);
   if (first !== first.toLowerCase() && first === first.toUpperCase()) {
     return word.charAt(0).toUpperCase() + word.slice(1);

@@ -30,6 +30,12 @@
     </button>
   {/each}
   <div class="tabs-spacer"></div>
+  {#if store.view_mode === "normal" && store.missing_count > 0}
+    <button type="button" class="missing-btn" onclick={store.focus_first_missing}
+      title={store.lang === "en" ? "Ir a la primera línea sin traducir" : "Ir a la primera línea sin versión en español"}>
+      {store.lang === "en" ? "Sin traducir" : "Sin español"} · {store.missing_count}
+    </button>
+  {/if}
   <div class="view-toggle" role="group" aria-label="Vista del script">
     <button type="button" class="view-opt" class:view-opt-active={store.view_mode === "normal"}
       aria-pressed={store.view_mode === "normal"} onclick={() => store.set_view_mode("normal")}
@@ -108,6 +114,8 @@
 <style>
   .lang-tabs { display: flex; align-items: flex-end; gap: 4px; padding: 12px 24px 0; }
   .tabs-spacer { flex: 1; }
+  .missing-btn { align-self: center; margin: 0 8px 4px 0; padding: 3px 9px; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: var(--text-muted); background: transparent; border: 1px dashed var(--border-strong); border-radius: 99px; cursor: pointer; transition: color var(--transition), border-color var(--transition), background var(--transition); }
+  .missing-btn:hover { color: var(--accent-text); border-color: var(--accent); background: var(--accent-muted); }
   .view-toggle { display: inline-flex; align-self: center; margin-bottom: 4px; margin-right: 6px; padding: 2px; gap: 2px; background: var(--bg-muted); border: 1px solid var(--border); border-radius: var(--radius-md); }
   .view-opt { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 10px; border: none; border-radius: calc(var(--radius-md) - 2px); background: transparent; color: var(--text-secondary); cursor: pointer; transition: background var(--transition), color var(--transition); }
   .view-opt:hover { color: var(--text-primary); }

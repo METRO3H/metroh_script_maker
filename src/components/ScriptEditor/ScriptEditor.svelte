@@ -107,13 +107,9 @@
       // en la vista JSON ni mientras se escribe en otro campo.
       if (store.view_mode === "json" || in_text_field) return;
 
-      // Navegar entre escenas vale en ambos idiomas.
+      // Todos los atajos valen igual en Español y en English.
       if (e.shiftKey && no_mods && e.code === "ArrowUp")   { e.preventDefault(); go_to_scene(-1); return; }
       if (e.shiftKey && no_mods && e.code === "ArrowDown") { e.preventDefault(); go_to_scene(1);  return; }
-
-      // En la pestaña English no se toca la estructura (escenas, personajes,
-      // tipos de línea).
-      if (store.lang === "en") return;
 
       if (e.shiftKey && no_mods && e.code === "Space" && !is_main_input) {
         e.preventDefault(); document.getElementById("script-input")?.focus(); return;

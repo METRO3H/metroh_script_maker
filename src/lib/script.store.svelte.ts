@@ -3,8 +3,8 @@
 import { tick } from "svelte";
 import type { Character, Lang, Project, ScriptLine } from "@types/script";
 import { export_txt, export_json, type ScriptJsonData } from "@lib/script.utils";
-import { create_suggester, type Suggestion } from "@lib/suggest/suggest.engine";
-import { load_learned_words, save_learned_words, MAX_LEARNED_WORDS } from "@lib/suggest/learned_words";
+import { create_suggester, type Suggester, type Suggestion } from "@lib/suggest/suggest.engine";
+import { fetch_custom_words, add_custom_words, migrate_legacy_words, type WordLang } from "@lib/suggest/learned_words";
 import { load_word_files } from "@lib/suggest/word_files";
 import { show_toast as push_toast } from "@lib/toast.svelte";
 
@@ -14,8 +14,8 @@ function init_state(script: any) {
   const char_index = Object.fromEntries(chars.map((c, i) => [c.name, i]));
   const lines: ScriptLine[] = (script.lines ?? []).map((l: any) => {
     if (l.line_type === "scene") return { is_scene: true, scene_number: l.scene_number } as ScriptLine;
-    if (l.line_type === "context") return { is_context: true, character_index: -1, text: l.content, text_en: l.content_en ?? "" } as ScriptLine;
-    return { character_index: char_index[l.character_name] ?? 0, text: l.content, text_en: l.content_en ?? "", line_type: l.line_type ?? "dialogue" } as ScriptLine;
+    if (l.line_type === "context") return { is_context: true, character_index: -1, text: l.content ?? "", text_en: l.content_en ?? "" } as ScriptLine;
+    return { character_index: char_index[l.character_name] ?? 0, text: l.content ?? "", text_en: l.content_en ?? "", line_type: l.line_type ?? "dialogue" } as ScriptLine;
   });
   return { id: script.id, title: script.name, title_en: script.name_en ?? "", project_id: script.project_id ?? null, characters: chars, lines };
 }
@@ -53,49 +53,65 @@ export function create_script_store(
   let toast_timeout: ReturnType<typeof setTimeout> | null = null;
 
   // ── Sugerencias de palabras (local, sin IA) ──────────────────
-  // El suggester no es reactivo por sí mismo: vocab_version sube cada vez
-  // que aprende algo nuevo para que `suggestions` se recalcule.
-  const suggester = create_suggester();
+  // Un suggester por idioma: cada pestaña sugiere con su propio diccionario.
+  // No son reactivos por sí mismos: vocab_version sube cada vez que aprenden
+  // algo nuevo para que `suggestions` se recalcule.
+  const suggesters: Record<Lang, Suggester> = { es: create_suggester(), en: create_suggester() };
   let vocab_version = $state(0);
 
-  function learn_from(text: string | undefined) {
+  function learn_from(text: string | undefined, for_lang: Lang = lang) {
     if (!text) return;
-    suggester.learn(text);
+    suggesters[for_lang].learn(text);
     vocab_version++;
   }
   // Vocabulario inicial: lo que ya tiene el guion al abrirlo.
-  suggester.learn_names(init.characters.map((c) => c.name));
-  // El diccionario base viene de archivos de texto (public/words/): al terminar
-  // de cargar, se fuerza el recálculo de las sugerencias.
-  load_word_files(suggester, () => vocab_version++);
-  for (const l of init.lines) if (!l.is_scene) suggester.learn(l.text ?? "");
+  for (const sg of Object.values(suggesters)) sg.learn_names(init.characters.map((c) => c.name));
+  for (const l of init.lines) {
+    if (l.is_scene) continue;
+    suggesters.es.learn(l.text ?? "");
+    suggesters.en.learn(l.text_en ?? "");
+  }
+  // Los diccionarios base vienen de archivos de texto (public/words/): al
+  // terminar de cargar, se fuerza el recálculo de las sugerencias.
+  for (const lg of ["es", "en"] as const) load_word_files(suggesters[lg], lg, () => vocab_version++);
 
-  // Palabras que la persona usó y que no están en el diccionario: se guardan al
-  // guardar el guion y se sugieren con prioridad media (entre tus palabras
-  // propias de es.custom.txt y el diccionario base).
+  // Palabras personalizadas de la cuenta (tabla custom_words): las que la
+  // persona usó en sus guiones y no están en el diccionario. Prioridad media:
+  // entre tus palabras de <idioma>.custom.txt y el diccionario base.
   const LEARNED_SCORE = 3.5;
-  const learned_words = load_learned_words();
-  if (learned_words.length) suggester.load_words(learned_words.join("\n"), { score: LEARNED_SCORE });
+  const learned_words: Record<WordLang, string[]> = { es: [], en: [] };
+
+  async function load_custom_words() {
+    if (typeof window === "undefined") return;
+    await migrate_legacy_words(); // palabras que una versión anterior guardó solo en el navegador
+    const remote = await fetch_custom_words();
+    for (const lg of ["es", "en"] as const) {
+      learned_words[lg] = remote[lg];
+      if (remote[lg].length) suggesters[lg].load_words(remote[lg].join("\n"), { score: LEARNED_SCORE });
+    }
+    vocab_version++;
+  }
+  load_custom_words();
 
   const MAX_SUGGESTIONS = 5;
   let computed_suggestions = $derived.by(() => {
     vocab_version;
-    suggester.learn_names(characters.map((c) => c.name));
-    return lang === "es" ? suggester.suggest(current_input, MAX_SUGGESTIONS) : [];
+    for (const sg of Object.values(suggesters)) sg.learn_names(characters.map((c) => c.name));
+    return suggesters[lang].suggest(current_input, MAX_SUGGESTIONS);
   });
 
   // Tab repetido: la primera vez aplica la primera sugerencia; cada Tab
   // siguiente la reemplaza por la que sigue (Shift+Tab, por la anterior). La
   // sesión vale mientras el input siga siendo exactamente lo que aplicó: si se
-  // escribe cualquier otra cosa, termina sola.
-  interface TabSession { base_input: string; list: Suggestion[]; index: number; applied: string }
+  // escribe cualquier otra cosa o se cambia de idioma, termina sola.
+  interface TabSession { base_input: string; list: Suggestion[]; index: number; applied: string; lang: Lang }
   let tab_session = $state<TabSession | null>(null);
-  let session_active = $derived(tab_session !== null && lang === "es" && tab_session.applied === current_input);
+  let session_active = $derived(tab_session !== null && tab_session.lang === lang && tab_session.applied === current_input);
   let suggestions = $derived(session_active ? tab_session!.list : computed_suggestions);
   let active_suggestion = $derived(session_active ? tab_session!.index : -1);
 
   function select_in_session(session: TabSession, index: number) {
-    const applied = capitalize_first(suggester.apply(session.base_input, session.list[index].word));
+    const applied = capitalize_first(suggesters[session.lang].apply(session.base_input, session.list[index].word));
     tab_session = { ...session, index, applied };
     current_input = applied;
   }
@@ -103,12 +119,11 @@ export function create_script_store(
   function start_session(): TabSession | null {
     if (session_active) return tab_session;
     if (computed_suggestions.length === 0) return null;
-    return { base_input: current_input, list: computed_suggestions, index: -1, applied: "" };
+    return { base_input: current_input, list: computed_suggestions, index: -1, applied: "", lang };
   }
 
   /** Devuelve true si hizo algo (para que el input decida si frena el Tab normal). */
   function cycle_suggestion(dir: 1 | -1): boolean {
-    if (lang !== "es") return false;
     // Shift+Tab solo retrocede dentro de una sesión; fuera de ella sigue siendo
     // el "foco anterior" de siempre.
     if (dir < 0 && !session_active) return false;
@@ -121,24 +136,30 @@ export function create_script_store(
 
   function apply_suggestion(word: string) {
     const session = start_session();
-    const i = session ? session.list.findIndex((s) => s.word === word) : -1;
+    const i = session ? session.list.findIndex((sg) => sg.word === word) : -1;
     if (session && i !== -1) select_in_session(session, i);
-    else current_input = capitalize_first(suggester.apply(current_input, word));
+    else current_input = capitalize_first(suggesters[lang].apply(current_input, word));
   }
 
-  // Al guardar, las palabras que no existen en el diccionario se suman a las
-  // sugerencias (y se recuerdan para otros guiones).
-  function remember_unknown_words(texts: string[]) {
-    const known = new Set(learned_words);
-    const fresh = suggester.find_unknown_words(texts).filter((w) => !known.has(w));
+  // Al guardar, las palabras que no existen en el diccionario del idioma se
+  // guardan en la cuenta y se suman a las sugerencias (también en otros guiones).
+  async function remember_unknown_words(lg: Lang, texts: string[]) {
+    const known = new Set(learned_words[lg]);
+    const fresh = suggesters[lg].find_unknown_words(texts).filter((w) => !known.has(w));
     if (fresh.length === 0) return;
-    learned_words.push(...fresh);
-    if (learned_words.length > MAX_LEARNED_WORDS) learned_words.splice(0, learned_words.length - MAX_LEARNED_WORDS);
-    save_learned_words(learned_words);
-    suggester.load_words(fresh.join("\n"), { score: LEARNED_SCORE });
+    // Se sugieren de inmediato, se haya podido guardar o no.
+    suggesters[lg].load_words(fresh.join("\n"), { score: LEARNED_SCORE });
     vocab_version++;
-    const sample = fresh.slice(0, 4).join(", ") + (fresh.length > 4 ? "…" : "");
-    push_toast(`${fresh.length} ${fresh.length === 1 ? "palabra nueva añadida" : "palabras nuevas añadidas"} a las sugerencias: ${sample}`, "neutral", { key: "learned-words", duration: 4000 });
+    const saved = await add_custom_words(lg, fresh);
+    const where = lg === "es" ? "español" : "inglés";
+    if (saved) {
+      learned_words[lg].push(...fresh);
+      const sample = fresh.slice(0, 4).join(", ") + (fresh.length > 4 ? "…" : "");
+      push_toast(`${fresh.length} ${fresh.length === 1 ? "palabra nueva añadida" : "palabras nuevas añadidas"} a las sugerencias (${where}): ${sample}`, "neutral", { key: `learned-words-${lg}`, duration: 4000 });
+    } else {
+      // No se agregan a learned_words: el próximo guardado lo reintenta.
+      push_toast(`No se pudieron guardar en tu cuenta las palabras nuevas (${where}); se reintentará al guardar`, "error", { key: `learned-words-${lg}` });
+    }
   }
   const RECT_THRESHOLD = 6;
   // El mínimo alcanza para el badge más largo ("Pensamiento"); antes era ~60px
@@ -160,8 +181,10 @@ export function create_script_store(
     return Math.min(Math.max(Math.ceil(longest * CHAR_PX), LABEL_MIN_PX), LABEL_MAX_PX);
   });
 
-  let translatable_count = $derived(full_script.filter((l) => !l.is_scene).length);
-  let translated_count = $derived(full_script.filter((l) => !l.is_scene && (l.text_en ?? "").trim() !== "").length);
+  // Líneas que ya tienen texto en español y cuántas de ellas ya están en inglés.
+  // (Una línea escrita primero en inglés no cuenta hasta tener su versión en español.)
+  let translatable_count = $derived(full_script.filter((l) => !l.is_scene && (l.text ?? "").trim() !== "").length);
+  let translated_count = $derived(full_script.filter((l) => !l.is_scene && (l.text ?? "").trim() !== "" && (l.text_en ?? "").trim() !== "").length);
 
   let current_scene_number = $derived.by(() => {
     const scenes = full_script.filter((l) => l.is_scene);
@@ -268,13 +291,16 @@ export function create_script_store(
     return capitalize_first(value);
   }
 
+  // El texto que se escribe y se edita es el del idioma de la pestaña activa;
+  // la otra versión de la línea queda vacía hasta que se escriba en su pestaña.
   function save_input() {
     const input = capitalize_first(current_input.trim());
     if (!input) return;
+    const own = lang === "en" ? { text: "", text_en: input } : { text: input, text_en: "" };
     if (current_character === -1) {
-      full_script = [...full_script, { is_context: true, character_index: -1, text: input }];
+      full_script = [...full_script, { is_context: true, character_index: -1, ...own }];
     } else {
-      full_script = [...full_script, { character_index: current_character, text: input, line_type: current_type }];
+      full_script = [...full_script, { character_index: current_character, ...own, line_type: current_type }];
     }
     learn_from(input);
     current_input = "";
@@ -282,14 +308,17 @@ export function create_script_store(
   }
 
   function update_line(new_text: string, i: number) {
-    const next = capitalize_first(new_text);
-    if (full_script[i]?.text !== next) learn_from(next);
-    full_script = full_script.map((s, index) => (index === i ? { ...s, text: next } : s));
+    const field = lang === "en" ? "text_en" : "text";
+    const next = lang === "en" ? new_text.trim() : capitalize_first(new_text);
+    if ((full_script[i]?.[field] ?? "") === next) return;
+    learn_from(next);
+    full_script = full_script.map((l, index) => (index === i ? { ...l, [field]: next } : l));
   }
 
-  // ── Versión en inglés ────────────────────────────────────────
-  // La estructura (escenas, personajes, orden, tipos) es una sola y se
-  // edita en español; el inglés solo es el texto de cada línea.
+  // ── Idioma activo ────────────────────────────────────────────
+  // Cada línea tiene su texto en español y en inglés. Las dos pestañas editan
+  // el mismo guion (escenas, personajes, orden y tipos son compartidos); lo que
+  // cambia es qué texto se escribe y se ve como principal.
   function set_lang(next: Lang) {
     if (next === lang) return;
     if (select_mode) exit_select_mode();
@@ -297,16 +326,17 @@ export function create_script_store(
     lang = next;
   }
 
-  function update_line_en(new_text: string, i: number) {
-    const next = new_text.trim();
-    if ((full_script[i]?.text_en ?? "") === next) return;
-    full_script = full_script.map((s, index) => (index === i ? { ...s, text_en: next } : s));
-  }
+  // Líneas a las que les falta el texto del idioma activo pero tienen el del
+  // otro: en English, las que aún no están traducidas; en Español, las que
+  // se escribieron primero en inglés.
+  const lacks = (l: ScriptLine, in_lang: Lang) =>
+    !l.is_scene && (in_lang === "en" ? (l.text ?? "") : (l.text_en ?? "")).trim() !== "" && (in_lang === "en" ? (l.text_en ?? "") : (l.text ?? "")).trim() === "";
+  let missing_count = $derived(full_script.filter((l) => lacks(l, lang)).length);
 
-  function focus_first_untranslated() {
-    const idx = full_script.findIndex((l) => !l.is_scene && (l.text_en ?? "").trim() === "");
+  function focus_first_missing() {
+    const idx = full_script.findIndex((l) => lacks(l, lang));
     if (idx === -1) return;
-    const el = document.getElementById(`script-en-${idx}`) as HTMLInputElement | null;
+    const el = document.getElementById(`script${idx}`) as HTMLInputElement | null;
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
     el?.focus();
   }
@@ -416,7 +446,6 @@ export function create_script_store(
 
   function on_mousedown(e: MouseEvent) {
     if (e.button !== 0) return;
-    if (lang === "en") return; // la selección múltiple borra líneas: solo en español
     if (view_mode === "json") return;
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON" || tag === "A" || (e.target as HTMLElement).closest("dialog, [data-no-rect]")) return;
@@ -436,9 +465,10 @@ export function create_script_store(
   async function save_script() {
     _json_flush?.();
     if (!script_title.trim()) { show_toast("no_title"); return; }
-    // El servidor rechaza líneas sin texto: las vacías (p. ej. una línea nueva
-    // que quedó en blanco) simplemente no se guardan.
-    const to_save = full_script.filter((l) => l.is_scene || (l.text ?? "").trim() !== "");
+    // El servidor rechaza líneas sin texto: las que están vacías en ambos idiomas
+    // (p. ej. una línea nueva que quedó en blanco) simplemente no se guardan.
+    // Una línea con texto en un solo idioma sí se guarda.
+    const to_save = full_script.filter((l) => l.is_scene || (l.text ?? "").trim() !== "" || (l.text_en ?? "").trim() !== "");
     const skipped = full_script.length - to_save.length;
     if (to_save.filter((l) => !l.is_scene && !l.is_context).length === 0) { show_toast("no_lines"); return; }
     show_toast("saving");
@@ -455,9 +485,10 @@ export function create_script_store(
           characters: characters.map((c) => c.name),
           lines: to_save.map((line, i) => {
             if (line.is_scene) return { line_number: i + 1, line_type: "scene", scene_number: line.scene_number };
+            const content = (line.text ?? "").trim() || undefined;
             const content_en = (line.text_en ?? "").trim() || undefined;
-            if (line.is_context) return { line_number: i + 1, line_type: "context", content: line.text, content_en };
-            return { line_number: i + 1, line_type: line.line_type ?? "dialogue", character_name: characters[line.character_index].name, content: line.text, content_en };
+            if (line.is_context) return { line_number: i + 1, line_type: "context", content, content_en };
+            return { line_number: i + 1, line_type: line.line_type ?? "dialogue", character_name: characters[line.character_index].name, content, content_en };
           }),
         }),
       });
@@ -474,7 +505,9 @@ export function create_script_store(
     script_id = returned_id;
     if (is_new) history.pushState({}, "", `/scripts/editor?id=${returned_id}`);
     show_toast("success");
-    remember_unknown_words(to_save.filter((l) => !l.is_scene).map((l) => l.text ?? ""));
+    const written = to_save.filter((l) => !l.is_scene);
+    remember_unknown_words("es", written.map((l) => l.text ?? ""));
+    remember_unknown_words("en", written.map((l) => l.text_en ?? ""));
     if (skipped > 0) push_toast(`${skipped} ${skipped === 1 ? "línea vacía no se guardó" : "líneas vacías no se guardaron"}`, "neutral");
   }
 
@@ -497,6 +530,7 @@ export function create_script_store(
     get active_suggestion()    { return active_suggestion; },
     get translatable_count()   { return translatable_count; },
     get translated_count()     { return translated_count; },
+    get missing_count()        { return missing_count; },
     get characters()           { return characters; },
     set characters(v)          { characters = v; },
     get full_script()          { return full_script; },
@@ -524,7 +558,7 @@ export function create_script_store(
 
     handle_onboarding_done,
     apply_suggestion, cycle_suggestion,
-    set_lang, update_line_en, focus_first_untranslated,
+    set_lang, focus_first_missing,
     set_project, create_project,
     insert_scene, insert_line, move_line, delete_scene, scroll_to_scene,
     handle_delete_character,

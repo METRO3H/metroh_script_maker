@@ -1,29 +1,32 @@
 #!/usr/bin/env python3
 """
-Genera public/words/es.txt (el diccionario base de sugerencias de palabras).
+Genera los diccionarios base de sugerencias: public/words/es.txt y en.txt.
 
 Combina dos fuentes abiertas:
   · Frecuencias reales en diálogo (FrequencyWords, OpenSubtitles 2018, CC BY-SA 4.0).
-  · Un diccionario ortográfico (an-array-of-spanish-words, MIT) para quedarse
-    solo con palabras que existen y descartar errores de tipeo de los subtítulos.
+  · Un diccionario ortográfico (an-array-of-spanish-words / an-array-of-english-words,
+    MIT) para quedarse solo con palabras que existen y descartar errores de
+    tipeo de los subtítulos.
 
 Cómo obtener los insumos (una sola vez):
 
   curl -O https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/es/es_full.txt
+  curl -O https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/en/en_full.txt
   npm i an-array-of-spanish-words an-array-of-english-words
   node -e "const f=require('fs');f.writeFileSync('es_dict.json',JSON.stringify(require('an-array-of-spanish-words')));f.writeFileSync('en_dict.json',JSON.stringify(require('an-array-of-english-words')))"
 
 Uso:
 
-  python3 scripts/build_spanish_words.py --freq es_full.txt --es-dict es_dict.json --en-dict en_dict.json
+  python3 scripts/build_spanish_words.py --lang es --freq es_full.txt --dict es_dict.json --other-dict en_dict.json --out public/words/es.txt
+  python3 scripts/build_spanish_words.py --lang en --freq en_full.txt --dict en_dict.json --other-dict es_dict.json --out public/words/en.txt
 
 Ajustes útiles: --min-count (más alto = lista más corta y limpia),
 --min-count-other (palabras que no están en el diccionario: nombres, jerga).
-Las palabras propias se agregan a mano en public/words/es.custom.txt, no acá.
+Las palabras propias se agregan a mano en public/words/<idioma>.custom.txt, no acá.
 """
 import argparse, json, re, unicodedata
 
-HEADER = """# Diccionario base de sugerencias de palabras (español).
+HEADER = """# Diccionario base de sugerencias de palabras ({language}).
 #
 # Formato: una palabra por línea, de la MÁS a la MENOS frecuente en diálogo
 # (el orden define la prioridad: arriba = se sugiere antes).
@@ -32,12 +35,12 @@ HEADER = """# Diccionario base de sugerencias de palabras (español).
 # tildes y adapta la mayúscula a lo que se está escribiendo.
 #
 # Para agregar tus propias palabras NO edites este archivo (se puede regenerar):
-# usa public/words/es.custom.txt.
+# usa public/words/{lang}.custom.txt.
 #
 # Fuentes y licencias:
 #  · Frecuencias: FrequencyWords (hermitdave), basado en OpenSubtitles 2018,
 #    licencia CC BY-SA 4.0 -> https://github.com/hermitdave/FrequencyWords
-#  · Validación ortográfica: an-array-of-spanish-words (MIT).
+#  · Validación ortográfica: {dict_pkg} (MIT).
 # Generado con scripts/build_spanish_words.py
 """
 
@@ -124,29 +127,36 @@ def clitic_stem_in_dict(w, dic):
     return False
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--freq", required=True)
-    ap.add_argument("--es-dict", required=True)
-    ap.add_argument("--en-dict", required=True)
-    ap.add_argument("--out", default="public/words/es.txt")
-    ap.add_argument("--min-count", type=int, default=2, help="apariciones mínimas de palabras del diccionario")
-    ap.add_argument("--min-count-clitic", type=int, default=5, help="idem para verbo+pronombre (hacerlo, dímelo)")
-    ap.add_argument("--min-count-other", type=int, default=500, help="idem para palabras fuera del diccionario (nombres, jerga)")
-    ap.add_argument("--variant-ratio", type=float, default=0.005, help="una variante con/sin tilde debe tener al menos esta fracción de la forma más usada")
-    ap.add_argument("--unaccented-ratio", type=float, default=0.02, help="la forma sin tilde debe tener al menos esta fracción de la forma con tilde")
-    args = ap.parse_args()
+EN_WORD_RE = re.compile(r"^[a-z]{2,30}$")
+# Contracciones: el corpus en inglés viene partido ("don" + "'t"), así que se
+# generan combinando bases y terminaciones, con una frecuencia estimada.
+EN_SUFFIX_BASES = {
+    "'s": ["it", "that", "he", "she", "there", "here", "what", "who", "let", "how", "where", "when", "why", "everyone", "everything", "nobody", "somebody", "something", "nothing", "one"],
+    "'m": ["i"],
+    "'re": ["you", "we", "they", "there", "what", "who"],
+    "'ll": ["i", "you", "he", "she", "it", "we", "they", "that", "there", "who", "what"],
+    "'ve": ["i", "you", "we", "they", "could", "would", "should", "might", "must", "who", "what"],
+    "'d": ["i", "you", "he", "she", "it", "we", "they", "that", "there", "who", "what"],
+    "'t": ["don", "doesn", "didn", "can", "couldn", "won", "wouldn", "isn", "aren", "wasn", "weren", "hasn", "haven", "hadn", "shouldn", "mustn", "needn", "ain", "shan"],
+}
 
-    dic = set(json.load(open(args.es_dict, encoding="utf-8")))
-    en = set(json.load(open(args.en_dict, encoding="utf-8")))
 
-    rows, seen = [], set()
-    for line in open(args.freq, encoding="utf-8"):
-        w, n = line.rstrip("\n").rsplit(" ", 1)
-        if WORD_RE.match(w) and w not in seen:
-            seen.add(w)
-            rows.append((w, int(n)))
+def english_contractions(counts):
+    """[(palabra, frecuencia estimada)] para don't, I'm, it's, you'll..."""
+    out = []
+    for suffix, bases in EN_SUFFIX_BASES.items():
+        total = sum(counts.get(b, 0) for b in bases) or 1
+        suffix_count = counts.get(suffix, 0)
+        for b in bases:
+            n = counts.get(b, 0)
+            if n == 0:
+                continue
+            word = ("can" if b == "can" else b) + suffix
+            out.append((word, max(int(suffix_count * n / total), 1)))
+    return out
 
+
+def build_es(rows, dic, other, args):
     # Frecuencia máxima por palabra sin tildes (para descartar variantes absurdas).
     top = {}
     for w, n in rows:
@@ -164,6 +174,8 @@ def main():
 
     kept = []
     for w, n in rows:
+        if not WORD_RE.match(w):
+            continue
         if not accent_ok(w):
             continue
         if n < args.variant_ratio * top[strip_accents(w)]:
@@ -179,14 +191,72 @@ def main():
         else:
             # Fuera del diccionario: nombres, lugares, jerga. Se descartan las
             # palabras que son inglés (subtítulos con diálogo en inglés).
-            ok = n >= args.min_count_other and w not in en
+            ok = n >= args.min_count_other and w not in other
         if ok:
             kept.append((w, n))
+    return kept
 
+
+def build_en(rows, dic, other, args):
+    counts = dict(rows)
+    contractions = english_contractions(counts)
+    # "dont", "im", "thats"...: el corpus las trae sin apóstrofo, pero no son
+    # palabras. Si no están en el diccionario se dejan fuera para que el motor
+    # ofrezca la forma correcta ("don't") como corrección.
+    bare = {c.replace("'", "") for c, _ in contractions}
+    kept = []
+    for w, n in rows:
+        if not EN_WORD_RE.match(w):
+            continue
+        if w not in dic and w in bare:
+            continue
+        if w in dic:
+            ok = n >= args.min_count
+        else:
+            # Nombres, jerga, onomatopeyas. Se descartan las palabras que son
+            # españolas (subtítulos con diálogo en español).
+            ok = n >= args.min_count_other and w not in other
+        if ok:
+            kept.append((w, n))
+    kept.extend(contractions)
+    return kept
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--lang", choices=["es", "en"], default="es")
+    ap.add_argument("--freq", required=True)
+    ap.add_argument("--dict", required=True, help="diccionario del idioma (JSON con una lista de palabras)")
+    ap.add_argument("--other-dict", required=True, help="diccionario del otro idioma (para descartar palabras extranjeras)")
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--min-count", type=int, default=2, help="apariciones mínimas de palabras del diccionario")
+    ap.add_argument("--min-count-clitic", type=int, default=5, help="(es) idem para verbo+pronombre (hacerlo, dímelo)")
+    ap.add_argument("--min-count-other", type=int, default=500, help="idem para palabras fuera del diccionario (nombres, jerga)")
+    ap.add_argument("--variant-ratio", type=float, default=0.005, help="(es) una variante con/sin tilde debe tener al menos esta fracción de la forma más usada")
+    ap.add_argument("--unaccented-ratio", type=float, default=0.02, help="(es) la forma sin tilde debe tener al menos esta fracción de la forma con tilde")
+    args = ap.parse_args()
+    out_path = args.out or f"public/words/{args.lang}.txt"
+
+    dic = set(json.load(open(args.dict, encoding="utf-8")))
+    other = set(json.load(open(args.other_dict, encoding="utf-8")))
+
+    rows, seen = [], set()
+    for line in open(args.freq, encoding="utf-8"):
+        w, n = line.rstrip("\n").rsplit(" ", 1)
+        if w not in seen:
+            seen.add(w)
+            rows.append((w, int(n)))
+
+    kept = build_es(rows, dic, other, args) if args.lang == "es" else build_en(rows, dic, other, args)
     kept.sort(key=lambda x: -x[1])
-    with open(args.out, "w", encoding="utf-8") as f:
-        f.write(HEADER + "\n".join(w for w, _ in kept) + "\n")
-    print(f"{len(kept)} palabras -> {args.out}")
+    header = HEADER.format(
+        language="español" if args.lang == "es" else "inglés",
+        lang=args.lang,
+        dict_pkg="an-array-of-spanish-words" if args.lang == "es" else "an-array-of-english-words",
+    )
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(header + "\n".join(w for w, _ in kept) + "\n")
+    print(f"{len(kept)} palabras -> {out_path}")
 
 
 if __name__ == "__main__":

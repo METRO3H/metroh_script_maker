@@ -99,7 +99,7 @@
       {#each MOUSE as m}<li>{m}</li>{/each}
     </ul>
   </section>
-  <p class="help-note">En la pestaña English solo funcionan Guardar, Esc y moverse entre escenas.</p>
+  <p class="help-note">Todo funciona igual en Español y en English: lo que escribes queda como el texto de la pestaña activa, y la otra versión de la línea se completa en su pestaña. Escenas, personajes y tipos son compartidos.</p>
 </dialog>
 
 <style>

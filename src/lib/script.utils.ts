@@ -34,16 +34,16 @@ export function download_file(content: string, filename: string, mime: string): 
 }
 
 // ── Exportar como .txt ───────────────────────────────────────────
-// En inglés, una línea sin traducir sale con el texto en español entre
-// llaves dobles ({{...}}), para que se vea qué falta sin perder el orden.
+// Una línea que no existe todavía en el idioma exportado sale con el texto del
+// otro idioma entre llaves dobles ({{...}}), para que se vea qué falta sin
+// perder el orden. Las líneas vacías en ambos idiomas se omiten.
 export function export_txt(lines: ScriptLine[], characters: Character[], title: string, lang: Lang = "es"): void {
   const header = `${title.toUpperCase()}\n${"─".repeat(48)}\n\n`;
-  const pick = (l: ScriptLine) => {
-    if (lang === "es") return l.text ?? "";
-    const en = (l.text_en ?? "").trim();
-    return en || `{{${l.text ?? ""}}}`;
-  };
+  const own_of = (l: ScriptLine) => ((lang === "es" ? l.text : l.text_en) ?? "").trim();
+  const other_of = (l: ScriptLine) => ((lang === "es" ? l.text_en : l.text) ?? "").trim();
+  const pick = (l: ScriptLine) => own_of(l) || (other_of(l) ? `{{${other_of(l)}}}` : "");
   const content = lines
+    .filter((l) => l.is_scene || pick(l) !== "")
     .map((l) => {
       if (l.is_scene) return `\n── ${lang === "en" ? "SCENE" : "ESCENA"} ${l.scene_number} ${"─".repeat(30)}\n`;
       if (l.is_context) return `[${pick(l)}]`;
@@ -58,12 +58,11 @@ export function export_txt(lines: ScriptLine[], characters: Character[], title: 
 // ── Script ⇄ JSON ────────────────────────────────────────────────
 // La vista JSON es independiente por idioma, así nada se duplica:
 //   · es → { name, characters, scenes: [[{ type, character, content }]] }
-//          (solo texto en español; es la fuente de la estructura)
-//   · en → { name, scenes: [[{ type, character, content }]] }
-//          (solo texto en inglés; type/character son de referencia, la
-//           estructura se cambia en español)
-// En la pestaña English, la comparativa con el original sale directamente del
-// script en español: el JSON en inglés no lo repite.
+//          con el texto en español
+//   · en → lo mismo, con el texto en inglés
+// En ambos la estructura (escenas, personajes, orden y tipos) se puede editar.
+// Cada idioma lleva solo su texto: al aplicar, el texto del otro idioma se
+// devuelve a cada línea (ver carry_other_language).
 export type JsonLang = "es" | "en";
 
 // Agrupa los índices de las líneas por escena. Si hay líneas antes de la
@@ -106,11 +105,10 @@ export function build_script_json(
       };
     }),
   );
-  if (lang === "en") return { name: title_en, scenes };
-  return { name: title, characters: characters.map((c) => c.name), scenes };
+  return { name: lang === "en" ? title_en : title, characters: characters.map((c) => c.name), scenes };
 }
 
-// Cada campo es opcional: el JSON en inglés solo toca title_en y text_en.
+// Cada campo es opcional: el JSON de cada idioma solo cambia su propio título.
 export interface ScriptJsonData {
   title?: string;
   title_en?: string;
@@ -126,108 +124,125 @@ function fail(msg: string): never {
   throw new JsonViewError(msg);
 }
 
-// ── Traducciones al editar el español ───────────────────────────
-// El JSON en español no lleva el inglés, así que al aplicarlo hay que
-// devolver a cada línea su traducción. Se alinea el script anterior con el
-// nuevo (prefijo/sufijo iguales + LCS en el medio) para que la traducción
-// siga a su línea aunque se inserten, borren o muevan líneas; una línea
-// editada en el mismo lugar conserva la suya.
-function line_key(l: ScriptLine, names: string[]): string {
+// ── Texto del otro idioma al editar uno ─────────────────────────
+// El JSON de cada idioma no lleva el texto del otro, así que al aplicarlo hay
+// que devolver a cada línea su texto en el otro idioma. Se alinea el script
+// anterior con el nuevo (prefijo/sufijo iguales + LCS en el medio) para que
+// ese texto siga a su línea aunque se inserten, borren o muevan líneas; una
+// línea editada en el mismo lugar conserva el suyo.
+type TextField = "text" | "text_en";
+
+function line_key(l: ScriptLine, names: string[], own: TextField): string {
   if (l.is_scene) return "scene";
   const who = l.is_context ? "" : (names[l.character_index] ?? "?");
-  return `${l.is_context ? "context" : (l.line_type ?? "dialogue")}|${who}|${l.text ?? ""}`;
+  return `${l.is_context ? "context" : (l.line_type ?? "dialogue")}|${who}|${l[own] ?? ""}`;
 }
 
 const MAX_LCS_CELLS = 4_000_000;
 
-export function carry_translations(
+export function carry_other_language(
   old_lines: ScriptLine[],
   old_names: string[],
   new_lines: ScriptLine[],
   new_names: string[],
+  own: TextField,
 ): ScriptLine[] {
-  const ok = old_lines.map((l) => line_key(l, old_names));
-  const nk = new_lines.map((l) => line_key(l, new_names));
-
-  let start = 0;
-  while (start < ok.length && start < nk.length && ok[start] === nk[start]) start++;
-  let oe = ok.length;
-  let ne = nk.length;
-  while (oe > start && ne > start && ok[oe - 1] === nk[ne - 1]) { oe--; ne--; }
-
+  const other: TextField = own === "text" ? "text_en" : "text";
+  const ok = old_lines.map((l) => line_key(l, old_names, own));
+  const nk = new_lines.map((l) => line_key(l, new_names, own));
   const match = new Array<number>(new_lines.length).fill(-1); // índice nuevo → índice viejo
-  for (let i = 0; i < start; i++) match[i] = i;
-  for (let k = 0; k < ok.length - oe; k++) match[ne + k] = oe + k;
 
-  const n = oe - start;
-  const m = ne - start;
-  if (n > 0 && m > 0 && n * m <= MAX_LCS_CELLS) {
-    const w = m + 1;
-    const dp = new Int32Array((n + 1) * w);
-    for (let i = n - 1; i >= 0; i--) {
-      for (let j = m - 1; j >= 0; j--) {
-        dp[i * w + j] = ok[start + i] === nk[start + j]
-          ? dp[(i + 1) * w + j + 1] + 1
-          : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
+  // Mismo largo y misma forma, y cada línea cambiada tiene un texto que antes no
+  // existía en ningún lado: son ediciones en el lugar (p. ej. completar las
+  // líneas sin traducir). Se emparejan por posición; así no hay ambigüedad con
+  // líneas que antes eran idénticas (todas vacías).
+  const old_keys = new Set(ok);
+  const in_place =
+    old_lines.length === new_lines.length &&
+    new_lines.every((l, i) => !!l.is_scene === !!old_lines[i].is_scene && (ok[i] === nk[i] || !old_keys.has(nk[i])));
+
+  if (in_place) {
+    for (let i = 0; i < new_lines.length; i++) if (!new_lines[i].is_scene) match[i] = i;
+  } else {
+    let start = 0;
+    while (start < ok.length && start < nk.length && ok[start] === nk[start]) start++;
+    let oe = ok.length;
+    let ne = nk.length;
+    while (oe > start && ne > start && ok[oe - 1] === nk[ne - 1]) { oe--; ne--; }
+
+    for (let i = 0; i < start; i++) match[i] = i;
+    for (let k = 0; k < ok.length - oe; k++) match[ne + k] = oe + k;
+
+    const n = oe - start;
+    const m = ne - start;
+    if (n > 0 && m > 0 && n * m <= MAX_LCS_CELLS) {
+      const w = m + 1;
+      const dp = new Int32Array((n + 1) * w);
+      for (let i = n - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+          dp[i * w + j] = ok[start + i] === nk[start + j]
+            ? dp[(i + 1) * w + j + 1] + 1
+            : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
+        }
+      }
+      let i = 0;
+      let j = 0;
+      while (i < n && j < m) {
+        if (ok[start + i] === nk[start + j]) { match[start + j] = start + i; i++; j++; }
+        else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) i++;
+        else j++;
       }
     }
-    let i = 0;
-    let j = 0;
-    while (i < n && j < m) {
-      if (ok[start + i] === nk[start + j]) { match[start + j] = start + i; i++; j++; }
-      else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) i++;
-      else j++;
+
+    // Líneas movidas de lugar: sin coincidencia en el LCS pero idénticas a una
+    // línea vieja que tampoco se emparejó.
+    const matched_old = () => new Set(match.filter((x) => x !== -1));
+    const used_old = matched_old();
+    const free_old = new Map<string, number[]>();
+    ok.forEach((k, i) => {
+      if (k === "scene" || used_old.has(i)) return;
+      (free_old.get(k) ?? free_old.set(k, []).get(k)!).push(i);
+    });
+    for (let j = 0; j < new_lines.length; j++) {
+      if (match[j] !== -1 || nk[j] === "scene") continue;
+      const candidates = free_old.get(nk[j]);
+      if (candidates?.length) match[j] = candidates.shift()!;
     }
-  }
 
-  // Líneas movidas de lugar: sin coincidencia en el LCS pero idénticas a una
-  // línea vieja que tampoco se emparejó.
-  const matched_old = () => new Set(match.filter((x) => x !== -1));
-  const used_old = matched_old();
-  const free_old = new Map<string, number[]>();
-  ok.forEach((k, i) => {
-    if (k === "scene" || used_old.has(i)) return;
-    (free_old.get(k) ?? free_old.set(k, []).get(k)!).push(i);
-  });
-  for (let j = 0; j < new_lines.length; j++) {
-    if (match[j] !== -1 || nk[j] === "scene") continue;
-    const candidates = free_old.get(nk[j]);
-    if (candidates?.length) match[j] = candidates.shift()!;
-  }
-
-  // Huecos entre coincidencias con la misma cantidad de líneas a cada lado:
-  // son ediciones en el lugar, así que se emparejan por posición.
-  let prev_new = -1;
-  let prev_old = -1;
-  for (let j = 0; j <= new_lines.length; j++) {
-    if (j < new_lines.length && match[j] === -1) continue;
-    const next_old = j < new_lines.length ? match[j] : old_lines.length;
-    const gap_new = j - prev_new - 1;
-    const gap_old = next_old - prev_old - 1;
-    if (gap_new > 0 && gap_new === gap_old) {
-      for (let g = 1; g <= gap_new; g++) {
-        const a = prev_new + g;
-        const b = prev_old + g;
-        // `b` no debe estar ya usado por una línea movida.
-        if (!new_lines[a].is_scene && !old_lines[b].is_scene && !matched_old().has(b)) match[a] = b;
+    // Huecos entre coincidencias con la misma cantidad de líneas a cada lado:
+    // son ediciones en el lugar, así que se emparejan por posición.
+    let prev_new = -1;
+    let prev_old = -1;
+    for (let j = 0; j <= new_lines.length; j++) {
+      if (j < new_lines.length && match[j] === -1) continue;
+      const next_old = j < new_lines.length ? match[j] : old_lines.length;
+      const gap_new = j - prev_new - 1;
+      const gap_old = next_old - prev_old - 1;
+      if (gap_new > 0 && gap_new === gap_old) {
+        for (let g = 1; g <= gap_new; g++) {
+          const a = prev_new + g;
+          const b = prev_old + g;
+          // `b` no debe estar ya usado por una línea movida.
+          if (!new_lines[a].is_scene && !old_lines[b].is_scene && !matched_old().has(b)) match[a] = b;
+        }
       }
+      // Un salto hacia atrás (línea movida) no sirve de ancla para el siguiente hueco.
+      if (j < new_lines.length && next_old < prev_old) continue;
+      prev_new = j;
+      prev_old = next_old;
     }
-    // Un salto hacia atrás (línea movida) no sirve de ancla para el siguiente hueco.
-    if (j < new_lines.length && next_old < prev_old) continue;
-    prev_new = j;
-    prev_old = next_old;
   }
 
   return new_lines.map((l, i) => {
     if (l.is_scene || match[i] === -1) return l;
-    const en = old_lines[match[i]].text_en;
-    return en ? { ...l, text_en: en } : l;
+    const text = old_lines[match[i]][other];
+    return text ? { ...l, [other]: text } : l;
   });
 }
 
 export interface ParseContext {
   lang: JsonLang;
-  /** Script tal como estaba al abrir la vista JSON (con sus traducciones). */
+  /** Script tal como estaba al abrir la vista JSON (con el texto de ambos idiomas). */
   base_lines: ScriptLine[];
   base_names: string[];
 }
@@ -247,82 +262,57 @@ export function parse_script_json(text: string, ctx: ParseContext): ParseScriptJ
     const title = raw.name ?? "";
     if (typeof title !== "string") fail('"name" debe ser texto');
 
-    return ctx.lang === "en" ? parse_en(raw, title, ctx) : parse_es(raw, title, ctx);
+    const own: TextField = ctx.lang === "en" ? "text_en" : "text";
+    const other: TextField = ctx.lang === "en" ? "text" : "text_en";
+
+    const names: string[] = [];
+    if (raw.characters !== undefined && raw.characters !== null) {
+      if (!Array.isArray(raw.characters)) fail('"characters" debe ser una lista de nombres');
+      raw.characters.forEach((c: unknown, i: number) => {
+        if (typeof c !== "string" || !c.trim()) fail(`characters[${i}] debe ser un nombre (texto no vacío)`);
+        const name = (c as string).trim();
+        if (names.some((x) => x.toLowerCase() === name.toLowerCase())) fail(`Personaje repetido: "${name}"`);
+        names.push(name);
+      });
+    }
+
+    const lines: ScriptLine[] = [];
+    raw.scenes.forEach((scene: unknown, si: number) => {
+      if (!Array.isArray(scene)) fail(`scenes[${si}] debe ser una lista de líneas`);
+      lines.push({ is_scene: true, scene_number: si + 1, character_index: -1 });
+      (scene as unknown[]).forEach((item: any, ii: number) => {
+        const path = `scenes[${si}][${ii}]`;
+        if (!item || typeof item !== "object" || Array.isArray(item)) fail(`${path} debe ser un objeto`);
+        const type = item.type ?? "dialogue";
+        if (!JSON_LINE_TYPES.includes(type)) fail(`${path}: "type" debe ser ${JSON_LINE_TYPES.join(", ")}`);
+        if (typeof item.content !== "string") fail(`${path}: falta "content" (texto)`);
+
+        if (type === "context") {
+          lines.push({ is_context: true, character_index: -1, [own]: item.content, [other]: "" });
+          return;
+        }
+        if (typeof item.character !== "string" || !item.character.trim()) fail(`${path}: falta "character"`);
+        const name = item.character.trim();
+        let idx = names.findIndex((x) => x.toLowerCase() === name.toLowerCase());
+        if (idx === -1) {
+          names.push(name);
+          idx = names.length - 1;
+        }
+        lines.push({ character_index: idx, [own]: item.content, [other]: "", line_type: type });
+      });
+    });
+
+    const data: ScriptJsonData = {
+      characters: names,
+      lines: carry_other_language(ctx.base_lines, ctx.base_names, lines, names, own),
+    };
+    if (ctx.lang === "en") data.title_en = title;
+    else data.title = title;
+    return { ok: true, data };
   } catch (e) {
     if (e instanceof JsonViewError) return { ok: false, error: e.message };
     throw e;
   }
-}
-
-function parse_es(raw: any, title: string, ctx: ParseContext): ParseScriptJsonResult {
-  const names: string[] = [];
-  if (raw.characters !== undefined && raw.characters !== null) {
-    if (!Array.isArray(raw.characters)) fail('"characters" debe ser una lista de nombres');
-    raw.characters.forEach((c: unknown, i: number) => {
-      if (typeof c !== "string" || !c.trim()) fail(`characters[${i}] debe ser un nombre (texto no vacío)`);
-      const name = (c as string).trim();
-      if (names.some((x) => x.toLowerCase() === name.toLowerCase())) fail(`Personaje repetido: "${name}"`);
-      names.push(name);
-    });
-  }
-
-  const lines: ScriptLine[] = [];
-  raw.scenes.forEach((scene: unknown, si: number) => {
-    if (!Array.isArray(scene)) fail(`scenes[${si}] debe ser una lista de líneas`);
-    lines.push({ is_scene: true, scene_number: si + 1, character_index: -1 });
-    (scene as unknown[]).forEach((item: any, ii: number) => {
-      const path = `scenes[${si}][${ii}]`;
-      if (!item || typeof item !== "object" || Array.isArray(item)) fail(`${path} debe ser un objeto`);
-      const type = item.type ?? "dialogue";
-      if (!JSON_LINE_TYPES.includes(type)) fail(`${path}: "type" debe ser ${JSON_LINE_TYPES.join(", ")}`);
-      if (typeof item.content !== "string") fail(`${path}: falta "content" (texto)`);
-
-      if (type === "context") {
-        lines.push({ is_context: true, character_index: -1, text: item.content, text_en: "" });
-        return;
-      }
-      if (typeof item.character !== "string" || !item.character.trim()) fail(`${path}: falta "character"`);
-      const name = item.character.trim();
-      let idx = names.findIndex((x) => x.toLowerCase() === name.toLowerCase());
-      if (idx === -1) {
-        names.push(name);
-        idx = names.length - 1;
-      }
-      lines.push({ character_index: idx, text: item.content, text_en: "", line_type: type });
-    });
-  });
-
-  return {
-    ok: true,
-    data: { title, characters: names, lines: carry_translations(ctx.base_lines, ctx.base_names, lines, names) },
-  };
-}
-
-// En inglés solo cambia el texto traducido: la estructura sale del español,
-// así que cada escena debe tener la misma cantidad de líneas.
-function parse_en(raw: any, title_en: string, ctx: ParseContext): ParseScriptJsonResult {
-  const groups = group_scenes(ctx.base_lines);
-  if (raw.scenes.length !== groups.length) {
-    fail(`"scenes" tiene ${raw.scenes.length} escenas y el script en español tiene ${groups.length}. La estructura se cambia en la vista Español`);
-  }
-  const texts = new Map<number, string>();
-  raw.scenes.forEach((scene: unknown, si: number) => {
-    if (!Array.isArray(scene)) fail(`scenes[${si}] debe ser una lista de líneas`);
-    const expected = groups[si].items;
-    if ((scene as unknown[]).length !== expected.length) {
-      fail(`scenes[${si}] tiene ${(scene as unknown[]).length} líneas y en español hay ${expected.length}. La estructura se cambia en la vista Español`);
-    }
-    (scene as unknown[]).forEach((item: any, ii: number) => {
-      const path = `scenes[${si}][${ii}]`;
-      if (!item || typeof item !== "object" || Array.isArray(item)) fail(`${path} debe ser un objeto`);
-      const content = item.content ?? "";
-      if (typeof content !== "string") fail(`${path}: "content" debe ser texto`);
-      texts.set(expected[ii], content.trim());
-    });
-  });
-
-  const lines = ctx.base_lines.map((l, i) => (texts.has(i) ? { ...l, text_en: texts.get(i)! } : l));
-  return { ok: true, data: { title_en, lines } };
 }
 
 // ── Exportar como .json ──────────────────────────────────────────

@@ -34,9 +34,11 @@ Metroh Script Maker combines a focused script-writing interface with account-bas
 - A suggestion bar right below the script input, like a phone keyboard: up to five chips that complete the word being typed or fix a likely typo.
 - Fully local and deterministic: no model download, no network requests, no WebGPU. Works on every device, including iOS.
 - Conservative by design: it never edits the text on its own. A chip is applied only when tapped or with `Tab`; pressing `Tab` again swaps it for the next suggestion (`Shift + Tab` goes back).
-- Words you use that are not in the dictionary (names, slang, invented terms) are remembered when you save the script and suggested from then on, in any script. They are stored per browser (`localStorage`), and a word that appears once and is one letter away from a known word is treated as a typo and skipped.
+- Each language has its own dictionary and its own suggester (Español and English tabs).
+- Words you use that are not in that language's dictionary (names, slang, invented terms) are saved to your account (table `custom_words`) when you save the script, and suggested from then on, in any script and on any device. A word that appears once and is one letter away from a known word is treated as a typo and skipped. If the save to the account fails, the words still work for the current session and the next save retries.
+- Words saved before this table existed (kept in the browser's `localStorage`) are uploaded to your account automatically the first time the editor opens.
 - Learns from the script itself: words from existing lines and character names rank above the built-in Spanish word list.
-- The word list is **not in the code**: it lives in plain text files under `public/words/` (`es.txt`, ~209k words, and `es.custom.txt` for your own words — see "Adding words" below).
+- The word list is **not in the code**: it lives in plain text files under `public/words/` (`es.txt` ~209k words and `en.txt` ~115k words, plus `es.custom.txt` / `en.custom.txt` for your own words — see "Adding words" below).
 - Handles accent restoration (`estacion` → `estación`) and one/two-letter typos (`habalr` → `hablar`).
 
 ### Projects
@@ -45,10 +47,12 @@ Metroh Script Maker combines a focused script-writing interface with account-bas
 - "+ Script" inside a project opens the editor with that project preselected.
 
 ### Spanish / English tabs
-- Every script has an **Español | English** tab pair. The structure (scenes, characters, order, line types) is shared and edited in Spanish; the English tab only holds the translation of each line and of the title.
-- The project does not translate anything: the English text is pasted or typed by hand (for example, from an external translator).
-- The English tab shows the Spanish line as a reference above each translation input, highlights untranslated lines, shows a `translated / total` counter, and `Enter` jumps to the next line.
-- Export: `.txt` follows the active tab (untranslated lines appear as `{{Spanish text}}` in English); `.json` contains both languages (`content` and `content_en`).
+- Every script has an **Español | English** tab pair, and **both tabs have exactly the same options**: add lines (character menu, line types, context lines), insert a line or a scene between two lines, delete lines and scenes, multi-select (hold the name / badge) and rectangle select, drag & drop and `Alt + ↑/↓` to reorder, word suggestions with `Tab`, the JSON view and every keyboard shortcut.
+- Scenes, characters, order and line types are **shared**: they are one structure seen from two tabs. What each tab edits is the **text** of every line: the Spanish tab writes the Spanish text, the English tab writes the English text. A line created in one tab has no text in the other until you write it there.
+- The other language is shown as a reference above the input: always in English → Spanish tab order (the Spanish original above each English input), and in the Spanish tab only for lines that do not have Spanish yet. Lines missing their text in the active tab are marked with an accent bar, and a `Sin traducir · n` / `Sin español · n` button in the header jumps to the first one. In the English tab `Enter` also jumps to the next line.
+- The project does not translate anything: the English text is typed or pasted by hand (for example, from an external translator).
+- Saving keeps a line as long as it has text in at least one language; lines empty in both are skipped.
+- Export: `.txt` and `.json` follow the active tab. A line without text in the exported language appears with the other language between double braces (`{{...}}`) in the `.txt`; each `.json` carries only its own language (`*.en.json` for English).
 
 ### Authentication and persistence
 - Email/password registration and login.
@@ -134,7 +138,12 @@ src/supabase/init.sql
 
 Run that SQL against your Supabase/PostgreSQL database.
 
-If you already have data, do **not** run `init.sql` (it drops everything). Run `src/supabase/migration_001_projects_and_english.sql` instead: it is non-destructive and safe to run more than once.
+If you already have data, do **not** run `init.sql` (it drops everything). Run the migrations instead, in order — they are non-destructive and safe to run more than once:
+
+```text
+src/supabase/migration_001_projects_and_english.sql   (projects + English version)
+src/supabase/migration_002_custom_words.sql           (custom suggestion words: table custom_words)
+```
 
 The schema creates:
 
@@ -195,7 +204,7 @@ The editor includes several productivity shortcuts.
 
 `Ctrl + S` becomes `Cmd + S` on macOS.
 
-In the English tab only `Ctrl + S`, `Escape` and the scene navigation shortcuts apply; shortcuts that change the structure of the script are ignored.
+All shortcuts work the same in the Spanish and English tabs.
 
 ---
 
@@ -211,7 +220,8 @@ script.store.svelte.ts  (vocab version + `suggestions` derived)
 suggest.engine.ts  (pure TypeScript, no DOM, no Svelte)
       │
       ▼
-word_files.ts ──► public/words/es.txt + es.custom.txt  (fetched once, cached by the browser)
+word_files.ts ──► public/words/{es,en}.txt + {es,en}.custom.txt  (fetched once, cached by the browser)
+learned_words.ts ──► /api/words/*  (custom words in your account)
 ```
 
 - `suggest.engine.ts` is pure and testable with plain Node. It only looks at the last word of the input and only when the cursor is attached to it (nothing is suggested after a space or punctuation).
@@ -220,9 +230,9 @@ word_files.ts ──► public/words/es.txt + es.custom.txt  (fetched once, cach
 
 #### Adding words
 
-- **Your own words** (slang, catchphrases, place names): add them to `public/words/es.custom.txt`, one per line (`#` starts a comment). Reload the page. No code changes.
+- **Your own words** (slang, catchphrases, place names): add them to `public/words/es.custom.txt` (or `en.custom.txt`), one per line (`#` starts a comment). Reload the page. No code changes. Words you use in scripts are also saved automatically in your account (see above).
 - **Another file** (for example a glossary for one story): drop it in `public/words/` and add it to `WORD_FILES` in `src/lib/suggest/word_files.ts`.
-- **Regenerating the big dictionary**: `scripts/build_spanish_words.py` rebuilds `es.txt` from word-frequency data (OpenSubtitles) validated against a Spanish dictionary; its header explains how to get the inputs and which thresholds to tune. `es.txt` is derived from FrequencyWords (CC BY-SA 4.0) — keep the attribution in its header.
+- **Regenerating the big dictionaries**: `scripts/build_spanish_words.py --lang es|en` rebuilds `es.txt` / `en.txt` from word-frequency data (OpenSubtitles) validated against a dictionary of that language; its header explains how to get the inputs and which thresholds to tune. Both files are derived from FrequencyWords (CC BY-SA 4.0) — keep the attribution in their headers.
 - Typo corrections (Damerau-Levenshtein distance ≤ 1, or ≤ 2 for words of 8+ letters) are only offered when the typed text does not complete any known word.
 
 ---
@@ -247,7 +257,8 @@ profiles
 
 - `scripts.project_id` is nullable and uses `ON DELETE SET NULL`, so deleting a project keeps its scripts.
 - Project names are unique per user (case-insensitive).
-- `scripts.name_en` and `script_lines.content_en` hold the English version. They are nullable: `NULL` means "not translated yet". Characters, scenes, order and line types are shared by both languages.
+- `scripts.name_en` and `script_lines.content_en` hold the English version. They are nullable: `NULL` means "no text in that language yet" (and `script_lines.content` can likewise be `NULL` for a line written first in English). Characters, scenes, order and line types are shared by both languages.
+- `custom_words` (`user_id`, `lang`, `word`) stores each user's own suggestion words per language (max 5000 per language), protected by row level security.
 
 `script_lines.line_type` can contain:
 
@@ -291,6 +302,14 @@ POST /api/script/delete
 POST /api/project/create
 POST /api/project/rename
 POST /api/project/delete
+```
+
+### Custom words
+
+```text
+GET  /api/words/list     all your custom words (both languages)
+POST /api/words/add      { lang: "es" | "en", words: string[] }  (max 500 per request, duplicates ignored)
+POST /api/words/delete   { lang, word }
 ```
 
 Projects are listed server-side (`get_user_projects`) when the script list and the editor render. Deleting a project does not delete its scripts.
@@ -370,13 +389,13 @@ The editor intentionally keeps the domain logic separate from the UI components:
 - `script.store.svelte.ts` manages editor state and operations.
 - `script.utils.ts` contains pure script/export utilities.
 - `suggest.engine.ts` implements word completion and typo correction.
-- `spanish_words.ts` holds the built-in Spanish vocabulary.
+- `word_files.ts` lists the plain-text dictionaries (`public/words/`) loaded per language; `learned_words.ts` talks to `/api/words/*` for the per-account custom words.
 
 ---
 
 ## Current Limitations
 
-- Suggestions are Spanish-only and word-level (no next-word prediction); the English tab has no suggestion bar.
+- Suggestions are word-level (no next-word prediction). There is no screen yet to review or delete the saved custom words; `POST /api/words/delete` exists for that.
 - Editing a Spanish line after translating it does not mark its English text as outdated.
 - Character names are shared between languages (there is no per-language name).
 

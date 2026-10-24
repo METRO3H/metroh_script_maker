@@ -1,8 +1,9 @@
 <script>
   // ScriptJsonView.svelte — el script como JSON editable, un idioma a la vez.
-  // Español: estructura + texto en español. English: solo el texto en inglés
-  // (sin repetir el español). Lo válido se aplica al instante; si no, se
-  // conserva la última versión válida y el error sale como toast.
+  // Cada pestaña muestra la estructura (escenas, personajes, tipos) con SU texto,
+  // sin repetir el del otro idioma; al aplicar, el texto del otro idioma vuelve a
+  // cada línea. Lo válido se aplica al instante; si no, se conserva la última
+  // versión válida y el error sale como toast.
   import { untrack, onDestroy } from "svelte";
   import Icon from "@components/ui/Icon.svelte";
   import { build_script_json, parse_script_json } from "@lib/script.utils";
@@ -103,10 +104,6 @@
     dismiss_toast_key("json-error");
     if (invalid) show_toast("Se descartaron los cambios del JSON porque no eran válidos", "error");
   });
-
-  if (lang === "en") {
-    show_toast("Aquí solo se edita el texto en inglés. Escenas, personajes y tipos se cambian en Español.", "neutral", { key: "json-en-info", duration: 4500 });
-  }
 
   async function copy_all() {
     try {

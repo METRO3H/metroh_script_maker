@@ -68,31 +68,30 @@
     setTimeout(() => { long_press_fired = false; }, 0);
   }
 
-  // Traducción: Enter guarda y salta a la siguiente línea (flujo rápido de
-  // revisión); Escape descarta el cambio de esa línea.
-  function handle_en_keydown(e, index, original_text) {
+  // Teclado dentro del input de una línea (vale para las dos pestañas).
+  //  · Enter confirma. En English salta además a la siguiente línea (flujo
+  //    rápido de traducción y revisión).
+  //  · Escape descarta el cambio; si la línea queda vacía en ambos idiomas
+  //    (p. ej. una línea recién insertada), se elimina.
+  //  · Alt + ↑/↓ sube o baja la línea un lugar.
+  function handle_line_keydown(e, index) {
+    const line = store.full_script[index];
+    const en = store.lang === "en";
+    const original = (en ? line?.text_en : line?.text) ?? "";
+    const other = (en ? line?.text : line?.text_en) ?? "";
+
     if (e.key === "Enter") {
+      if (!en) { e.currentTarget.blur(); return; }
       e.preventDefault();
       const next = store.full_script.findIndex((l, i) => i > index && !l.is_scene);
-      const target = next === -1 ? null : document.getElementById(`script-en-${next}`);
+      const target = next === -1 ? null : document.getElementById(`script${next}`);
       if (target) { target.focus(); target.scrollIntoView({ block: "center", behavior: "smooth" }); }
       else e.currentTarget.blur();
     } else if (e.key === "Escape") {
-      e.currentTarget.value = original_text;
+      e.currentTarget.value = original;
       e.currentTarget.blur();
-    }
-  }
-
-  function handle_line_keydown(e, original_text, index) {
-    if (e.key === "Enter") {
-      e.currentTarget.blur();
-    } else if (e.key === "Escape") {
-      e.currentTarget.value = original_text;
-      e.currentTarget.blur();
-      // Una línea recién insertada que se deja vacía se descarta con Escape.
-      if (original_text === "") store.delete_line(index);
+      if (original.trim() === "" && other.trim() === "") store.delete_line(index);
     } else if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-      // Alt+↑/↓ sube o baja la línea un lugar sin soltar el teclado.
       e.preventDefault();
       store.update_line(e.currentTarget.value, index);
       move_and_refocus(index, e.key === "ArrowUp" ? index - 1 : index + 2);
@@ -200,7 +199,7 @@
   {#if store.full_script.length === 0}
     <div class="empty-state">
       <p class="empty-title">El script está vacío</p>
-      <p class="empty-sub">{store.lang === "en" ? "Escribe primero el guion en Español; después lo traduces acá" : "Selecciona un personaje y empieza a escribir abajo"}</p>
+      <p class="empty-sub">{store.lang === "en" ? "Select a character and start writing below" : "Selecciona un personaje y empieza a escribir abajo"}</p>
     </div>
   {/if}
 
@@ -210,43 +209,30 @@
       <div class="scene-separator" bind:this={scene_refs[index]}
         class:drop-above={show_drop(index)}
         class:drop-below={index === store.full_script.length - 1 && show_drop(index + 1)}
-        ondragover={store.lang === "es" ? (e) => handle_drag_over(e, index) : undefined}
-        ondrop={store.lang === "es" ? handle_drop : undefined}>
+        ondragover={(e) => handle_drag_over(e, index)}
+        ondrop={handle_drop}>
         <div class="scene-separator-inner">
           <span class="scene-label">{store.lang === "en" ? "Scene" : "Escena"} {line.scene_number}</span>
           <div class="scene-line"></div>
-          {#if store.lang === "es"}
-            <button class="scene-delete" onclick={() => store.delete_scene(index)}
-              aria-label="Eliminar escena {line.scene_number}" title="Eliminar escena">
-              <Icon name="x" size={10} stroke_width={3} />
-            </button>
-          {/if}
-        </div>
-      </div>
-    {:else if store.lang === "en"}
-      <div class="script-line en-line" class:en-missing={!(line.text_en ?? "").trim()} data-line-index={index}>
-        {@render meta(line, index, false)}
-        <div class="en-pair">
-          <span class="es-ref" class:es-ref-italic={line.is_context || line.line_type === "thought" || line.line_type === "narration"}>{line.text}</span>
-          <input
-            id={`script-en-${index}`}
-            class="line-input en-input"
-            class:context-input={line.is_context}
-            class:thought-input={line.line_type === "thought"}
-            class:narration-input={line.line_type === "narration"}
-            value={line.text_en ?? ""}
-            placeholder="Translation…"
-            onblur={(e) => store.update_line_en(e.target.value, index)}
-            onkeydown={(e) => handle_en_keydown(e, index, line.text_en ?? "")}
-            autocomplete="off"
-            spellcheck="true"
-            lang="en"
-          />
+          <button class="scene-delete" onclick={() => store.delete_scene(index)}
+            aria-label="Eliminar escena {line.scene_number}" title="Eliminar escena">
+            <Icon name="x" size={10} stroke_width={3} />
+          </button>
         </div>
       </div>
     {:else}
+      <!-- Cada línea tiene su texto en español y en inglés. El input edita el del
+           idioma activo; si existe, el del otro idioma se muestra encima como
+           referencia (siempre en English; en Español, solo si esa línea todavía
+           no tiene español). -->
+      {@const en = store.lang === "en"}
+      {@const own = (en ? line.text_en : line.text) ?? ""}
+      {@const other = (en ? line.text : line.text_en) ?? ""}
+      {@const show_ref = other.trim() !== "" && (en || own.trim() === "")}
       <div
         class="script-line"
+        class:with-ref={show_ref}
+        class:line-missing={show_ref && own.trim() === ""}
         class:context-line={line.is_context}
         class:thought-line={line.line_type === "thought"}
         class:narration-line={line.line_type === "narration"}
@@ -285,22 +271,29 @@
 
         {@render meta(line, index, true)}
 
-        <input
-          name={`script${index}`}
-          id={`script${index}`}
-          class="line-input"
-          class:context-input={line.is_context}
-          class:thought-input={line.line_type === "thought"}
-          class:narration-input={line.line_type === "narration"}
-          value={line.text}
-          onblur={(e) => store.update_line(e.target.value, index)}
-          onkeydown={(e) => handle_line_keydown(e, line.text, index)}
-          placeholder="Escribe aquí…"
-          autocomplete="off"
-          spellcheck="true"
-          disabled={store.select_mode}
-          tabindex={store.select_mode ? -1 : 0}
-        />
+        <div class="line-main">
+          {#if show_ref}
+            <span class="line-ref" class:line-ref-italic={line.is_context || line.line_type === "thought" || line.line_type === "narration"}
+              lang={en ? "es" : "en"} title={en ? "Versión en español" : "English version"}>{other}</span>
+          {/if}
+          <input
+            name={`script${index}`}
+            id={`script${index}`}
+            class="line-input"
+            class:context-input={line.is_context}
+            class:thought-input={line.line_type === "thought"}
+            class:narration-input={line.line_type === "narration"}
+            value={own}
+            onblur={(e) => store.update_line(e.target.value, index)}
+            onkeydown={(e) => handle_line_keydown(e, index)}
+            placeholder={show_ref ? (en ? "Translation…" : "Escribe la versión en español…") : en ? "Write here…" : "Escribe aquí…"}
+            autocomplete="off"
+            spellcheck="true"
+            lang={store.lang}
+            disabled={store.select_mode}
+            tabindex={store.select_mode ? -1 : 0}
+          />
+        </div>
 
         {#if !store.select_mode}
           <button class="line-delete" onclick={() => store.delete_line(index)}
@@ -393,7 +386,7 @@
   .badge-context   { --badge-color: var(--text-secondary); }
 
   /* ── Inputs ── */
-  .line-input { flex: 1; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); padding: 7px 10px; font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); outline: none; transition: background var(--transition), border-color var(--transition); }
+  .line-input { width: 100%; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); padding: 7px 10px; font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); outline: none; transition: background var(--transition), border-color var(--transition); }
   .line-input:hover { background: var(--bg-subtle); border-color: var(--border); }
   .line-input:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-muted); }
   .context-input { font-style: italic; color: var(--text-secondary) !important; }
@@ -417,18 +410,17 @@
   .line-selected .line-input { color: var(--error-text) !important; }
 
   /* ── Pestaña English ── */
-  .en-line { align-items: flex-start; padding: 5px 0 5px 8px; border-left: 2px solid transparent; }
-  .en-missing { border-left-color: var(--accent); }
-  .en-line .line-meta { padding-top: 4px; }
-  .en-pair { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .es-ref { font-size: 12px; line-height: 1.4; color: var(--text-muted); padding: 0 10px; overflow-wrap: anywhere; }
-  .es-ref-italic { font-style: italic; }
-  .en-input { width: 100%; background: var(--bg-subtle); border-color: var(--border); }
-  .en-input::placeholder { color: var(--text-placeholder); }
-
-  .context-line { margin: 2px 0; }
-  .thought-line { margin: 1px 0; }
-  .narration-line { margin: 1px 0; }
+  /* Línea con la versión del otro idioma como referencia encima del input */
+  .line-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .with-ref { align-items: flex-start; padding: 5px 0 5px 8px; border-left: 2px solid transparent; }
+  .with-ref .line-meta { padding-top: 4px; }
+  .with-ref .line-delete { align-self: center; }
+  /* Falta el texto principal de esta línea en el idioma activo */
+  .line-missing { border-left-color: var(--accent); }
+  .line-ref { font-size: 12px; line-height: 1.4; color: var(--text-muted); padding: 0 10px; overflow-wrap: anywhere; }
+  .line-ref-italic { font-style: italic; }
+  .with-ref .line-input { background: var(--bg-subtle); border-color: var(--border); }
+  .with-ref .line-input::placeholder { color: var(--text-placeholder); }
 </style>
 
 
