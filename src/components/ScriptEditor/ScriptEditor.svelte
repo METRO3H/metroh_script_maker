@@ -142,6 +142,13 @@
     };
   });
 
+  // ── Sugerencias de palabras ──────────────────────────────────
+  // Cada cambio de texto, idioma, personajes o vocabulario pide al worker las
+  // sugerencias del texto actual (ver sync_suggestions en el store).
+  $effect(() => {
+    store.sync_suggestions();
+  });
+
   // ── Aviso al salir con cambios sin guardar ───────────────────
   $effect(() => {
     function on_beforeunload(e) {

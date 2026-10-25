@@ -1,4 +1,5 @@
 
+
 // src/lib/suggest/suggest.engine.ts
 // Motor de sugerencias de palabras, estilo teclado de celular.
 // 100 % local, determinista y sin IA: completa la palabra que se está
@@ -18,6 +19,8 @@
 // índice se arma por prefijo de 2 letras, así que cada tecla solo recorre un
 // pedazo del diccionario y no todo.
 
+import { TRAILING_WORD_RE, apply_word } from "./suggest.text";
+
 export type SuggestionKind = "complete" | "fix";
 
 export interface Suggestion {
@@ -31,7 +34,6 @@ interface Entry {
 }
 
 const WORD_RE = /[\p{L}\p{M}'’-]+/gu;
-const TRAILING_WORD_RE = /[\p{L}\p{M}'’-]+$/u;
 
 const PLAIN_RE = /^[a-z]+$/;
 
@@ -347,13 +349,13 @@ export function create_suggester() {
   }
 
   /** Reemplaza la última palabra de `input` por `word` y deja un espacio. */
-  function apply(input: string, word: string): string {
-    return input.replace(TRAILING_WORD_RE, "") + word + " ";
-  }
+  const apply = apply_word;
 
   return { load_words, find_unknown_words, learn, learn_names, suggest, apply, get base_size() { return base_keys.length; } };
 }
 
 export type Suggester = ReturnType<typeof create_suggester>;
+
+
 
 

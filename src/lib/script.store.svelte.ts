@@ -4,7 +4,9 @@
 import { tick } from "svelte";
 import type { Character, Lang, Project, ScriptLine } from "@types/script";
 import { export_txt, export_json, type ScriptJsonData } from "@lib/script.utils";
-import { create_suggester, type Suggester, type Suggestion } from "@lib/suggest/suggest.engine";
+import type { Suggestion } from "@lib/suggest/suggest.engine";
+import { apply_word } from "@lib/suggest/suggest.text";
+import { create_suggest_client, create_suggestion_feed, type SuggestionResult } from "@lib/suggest/suggest.client";
 import { fetch_custom_words, add_custom_words, migrate_legacy_words, type WordLang } from "@lib/suggest/learned_words";
 import { load_word_files } from "@lib/suggest/word_files";
 import { show_toast as push_toast } from "@lib/toast.svelte";
@@ -77,27 +79,36 @@ export function create_script_store(
   let is_dirty = $derived(make_snapshot() !== saved_snapshot);
 
   // ── Sugerencias de palabras (local, sin IA) ──────────────────
-  // Un suggester por idioma: cada pestaña sugiere con su propio diccionario.
-  // No son reactivos por sí mismos: vocab_version sube cada vez que aprenden
-  // algo nuevo para que `suggestions` se recalcule.
-  const suggesters: Record<Lang, Suggester> = { es: create_suggester(), en: create_suggester() };
+  // Los motores (uno por idioma) viven en un Web Worker: descargan y procesan
+  // los diccionarios y responden a cada tecla fuera del hilo principal. Aquí
+  // solo se les manda lo que hay que aprender y se reciben los resultados.
+  // vocab_version sube cada vez que el vocabulario cambia, para que se vuelvan
+  // a pedir las sugerencias del texto actual.
+  const suggest_client = create_suggest_client();
   let vocab_version = $state(0);
 
   function learn_from(text: string | undefined, for_lang: Lang = lang) {
     if (!text) return;
-    suggesters[for_lang].learn(text);
+    suggest_client.learn(for_lang, text);
     vocab_version++;
   }
   // Vocabulario inicial: lo que ya tiene el guion al abrirlo.
-  for (const sg of Object.values(suggesters)) sg.learn_names(init.characters.map((c) => c.name));
-  for (const l of init.lines) {
-    if (l.is_scene) continue;
-    suggesters.es.learn(l.text ?? "");
-    suggesters.en.learn(l.text_en ?? "");
+  let sent_names_key = init.characters.map((c) => c.name).join("\u0000");
+  suggest_client.learn_names(init.characters.map((c) => c.name));
+  const initial_lines = init.lines.filter((l) => !l.is_scene);
+  suggest_client.learn("es", initial_lines.map((l) => l.text ?? "").join("\n"));
+  suggest_client.learn("en", initial_lines.map((l) => l.text_en ?? "").join("\n"));
+
+  // Diccionarios base (archivos de texto en public/words/). El español se pide
+  // al abrir; el inglés solo cuando hace falta (pestaña English o al guardar
+  // texto en inglés): ahorra descarga, CPU y memoria a quien no lo usa.
+  const dictionary_loads: Partial<Record<Lang, Promise<void>>> = {};
+  function ensure_dictionary(lg: Lang): Promise<void> {
+    return (dictionary_loads[lg] ??= load_word_files(suggest_client, lg).then(() => {
+      if (typeof window !== "undefined") vocab_version++;
+    }));
   }
-  // Los diccionarios base vienen de archivos de texto (public/words/): al
-  // terminar de cargar, se fuerza el recálculo de las sugerencias.
-  for (const lg of ["es", "en"] as const) load_word_files(suggesters[lg], lg, () => vocab_version++);
+  ensure_dictionary("es");
 
   // Palabras personalizadas de la cuenta (tabla custom_words): las que la
   // persona usó en sus guiones y no están en el diccionario. Prioridad media:
@@ -111,18 +122,36 @@ export function create_script_store(
     const remote = await fetch_custom_words();
     for (const lg of ["es", "en"] as const) {
       learned_words[lg] = remote[lg];
-      if (remote[lg].length) suggesters[lg].load_words(remote[lg].join("\n"), { score: LEARNED_SCORE });
+      if (remote[lg].length) suggest_client.load_words(lg, remote[lg].join("\n"), LEARNED_SCORE);
     }
     vocab_version++;
   }
   load_custom_words();
 
+  // Resultado más reciente del worker. Se muestra aunque vaya un instante por
+  // detrás de lo que se está tecleando (evita parpadeos), pero para aplicar con
+  // Tab solo vale si corresponde EXACTAMENTE al texto actual.
   const MAX_SUGGESTIONS = 5;
-  let computed_suggestions = $derived.by(() => {
+  let computed = $state.raw<SuggestionResult>({ input: "", lang: "es", list: [] });
+  const suggestion_feed = create_suggestion_feed(suggest_client, MAX_SUGGESTIONS, (r) => { computed = r; });
+  let computed_suggestions = $derived(computed.lang === lang ? computed.list : []);
+  let computed_fresh = $derived(computed.lang === lang && computed.input === current_input);
+
+  /**
+   * Pide las sugerencias del texto actual. Se llama desde un $effect del
+   * componente (ScriptEditor): lo que lee aquí (texto, idioma, personajes,
+   * vocabulario) es lo que dispara una nueva consulta.
+   */
+  function sync_suggestions() {
     vocab_version;
-    for (const sg of Object.values(suggesters)) sg.learn_names(characters.map((c) => c.name));
-    return suggesters[lang].suggest(current_input, MAX_SUGGESTIONS);
-  });
+    const names = characters.map((c) => c.name);
+    const names_key = names.join("\u0000");
+    if (names_key !== sent_names_key) {
+      sent_names_key = names_key;
+      suggest_client.learn_names(names);
+    }
+    suggestion_feed.request(current_input, lang);
+  }
 
   // Tab repetido: la primera vez aplica la primera sugerencia; cada Tab
   // siguiente la reemplaza por la que sigue (Shift+Tab, por la anterior). La
@@ -135,15 +164,15 @@ export function create_script_store(
   let active_suggestion = $derived(session_active ? tab_session!.index : -1);
 
   function select_in_session(session: TabSession, index: number) {
-    const applied = capitalize_first(suggesters[session.lang].apply(session.base_input, session.list[index].word));
+    const applied = capitalize_first(apply_word(session.base_input, session.list[index].word));
     tab_session = { ...session, index, applied };
     current_input = applied;
   }
 
   function start_session(): TabSession | null {
     if (session_active) return tab_session;
-    if (computed_suggestions.length === 0) return null;
-    return { base_input: current_input, list: computed_suggestions, index: -1, applied: "", lang };
+    if (!computed_fresh || computed.list.length === 0) return null;
+    return { base_input: current_input, list: computed.list, index: -1, applied: "", lang };
   }
 
   /** Devuelve true si hizo algo (para que el input decida si frena el Tab normal). */
@@ -162,17 +191,21 @@ export function create_script_store(
     const session = start_session();
     const i = session ? session.list.findIndex((sg) => sg.word === word) : -1;
     if (session && i !== -1) select_in_session(session, i);
-    else current_input = capitalize_first(suggesters[lang].apply(current_input, word));
+    else current_input = capitalize_first(apply_word(current_input, word));
   }
 
   // Al guardar, las palabras que no existen en el diccionario del idioma se
   // guardan en la cuenta y se suman a las sugerencias (también en otros guiones).
   async function remember_unknown_words(lg: Lang, texts: string[]) {
+    // Sin texto en este idioma no hay nada que revisar (y no se carga su diccionario).
+    if (!texts.some((t) => t.trim() !== "")) return;
+    // Sin el diccionario cargado todo parecería "desconocido": se espera a que esté.
+    await ensure_dictionary(lg);
     const known = new Set(learned_words[lg]);
-    const fresh = suggesters[lg].find_unknown_words(texts).filter((w) => !known.has(w));
+    const fresh = (await suggest_client.find_unknown(lg, texts)).filter((w) => !known.has(w));
     if (fresh.length === 0) return;
     // Se sugieren de inmediato, se haya podido guardar o no.
-    suggesters[lg].load_words(fresh.join("\n"), { score: LEARNED_SCORE });
+    suggest_client.load_words(lg, fresh.join("\n"), LEARNED_SCORE);
     vocab_version++;
     const saved = await add_custom_words(lg, fresh);
     const where = lg === "es" ? "español" : "inglés";
@@ -348,6 +381,7 @@ export function create_script_store(
     if (select_mode) exit_select_mode();
     _json_flush?.(); // si la vista JSON tiene algo pendiente, aplicarlo antes de cambiar de idioma
     lang = next;
+    void ensure_dictionary(next);
   }
 
   // Líneas a las que les falta el texto del idioma activo pero tienen el del
@@ -609,7 +643,7 @@ export function create_script_store(
     set lines_area_el(v)       { lines_area_el = v; },
 
     handle_onboarding_done,
-    apply_suggestion, cycle_suggestion,
+    sync_suggestions, apply_suggestion, cycle_suggestion,
     set_lang, focus_first_missing,
     set_project, create_project,
     insert_scene, insert_line, move_line, delete_scene, scroll_to_scene,

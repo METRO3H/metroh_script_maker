@@ -1,3 +1,4 @@
+
 ---
 import ScriptEditor from "@components/ScriptEditor/ScriptEditor.svelte";
 import Layout from "@layouts/MainLayout.astro";
@@ -13,13 +14,15 @@ const { user } = auth;
 let initialScript = null;
 
 const script_id = Astro.url.searchParams.get("id");
-if (script_id) {
-  const { data, error } = await auth.supabase.rpc("get_script_detail", { p_script_id: script_id });
-  if (!error && data) initialScript = data;
-}
 
-const { data: projects } = await auth.supabase.rpc("get_user_projects");
-const initialProjects = projects ?? [];
+// El script y la lista de proyectos son independientes: se piden a la vez
+// (antes eran dos viajes a la base de datos uno detrás del otro).
+const [detail_res, projects_res] = await Promise.all([
+  script_id ? auth.supabase.rpc("get_script_detail", { p_script_id: script_id }) : null,
+  auth.supabase.rpc("get_user_projects"),
+]);
+if (detail_res && !detail_res.error && detail_res.data) initialScript = detail_res.data;
+const initialProjects = projects_res.data ?? [];
 
 // "+ Script" desde un proyecto de la lista llega con ?project=<id>. Solo se
 // respeta si ese proyecto realmente es del usuario.
@@ -84,3 +87,5 @@ const defaultProjectId =
   .editor-card { width: 100%; max-width: 820px; height: calc(100vh - 96px); display: flex; flex-direction: column; overflow: hidden; }
   .btn-sm { font-size: 10px; padding: 5px 12px; }
 </style>
+
+

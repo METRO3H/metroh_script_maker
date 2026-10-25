@@ -1,3 +1,4 @@
+
 ---
 import Layout from "@layouts/MainLayout.astro";
 import ScriptList from "@components/ScriptList/ScriptList.svelte";
@@ -10,10 +11,13 @@ if (!auth) {
 }
 
 const { user } = auth;
-const { data: scripts } = await auth.supabase.rpc("get_user_scripts");
-const script_list = scripts ?? [];
-const { data: projects } = await auth.supabase.rpc("get_user_projects");
-const project_list = projects ?? [];
+// Consultas independientes: en paralelo en vez de una detrás de otra.
+const [scripts_res, projects_res] = await Promise.all([
+  auth.supabase.rpc("get_user_scripts"),
+  auth.supabase.rpc("get_user_projects"),
+]);
+const script_list = scripts_res.data ?? [];
+const project_list = projects_res.data ?? [];
 ---
 
 <Layout title="Mis scripts">
@@ -79,3 +83,5 @@ const project_list = projects ?? [];
   .section-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
   .btn-sm { font-size: 10px; padding: 5px 12px; }
 </style>
+
+

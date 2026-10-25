@@ -572,15 +572,8 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    v_script_id      UUID;
-    v_character_id   UUID;
-    v_character_map  JSONB := '{}';
-    v_line           JSONB;
-    v_character      TEXT;
-    v_user_id        UUID;
-    v_line_type      TEXT;
-    v_character_name TEXT;
-    v_position       INTEGER := 0;
+    v_script_id UUID;
+    v_user_id   UUID;
 BEGIN
     v_user_id := auth.uid();
 
@@ -639,52 +632,42 @@ BEGIN
         WHERE script_id = v_script_id;
     END IF;
 
-    FOREACH v_character IN ARRAY p_characters LOOP
-        INSERT INTO characters (script_id, name, position)
-        VALUES (v_script_id, v_character, v_position)
-        RETURNING id INTO v_character_id;
+    -- Personajes: una sola sentencia; `position` sale del orden del arreglo.
+    INSERT INTO characters (script_id, name, position)
+    SELECT v_script_id, t.name, (t.ord - 1)::INTEGER
+    FROM unnest(p_characters) WITH ORDINALITY AS t(name, ord);
 
-        v_position := v_position + 1;
-
-        v_character_map :=
-            v_character_map ||
-            jsonb_build_object(v_character, v_character_id);
-    END LOOP;
-
-    FOR v_line IN
-        SELECT *
-        FROM jsonb_array_elements(p_lines)
-    LOOP
-        v_line_type := v_line->>'line_type';
-        v_character_name := v_line->>'character_name';
-
-        INSERT INTO script_lines (
-            script_id,
-            character_id,
-            line_number,
-            line_type,
-            content,
-            content_en,
-            scene_number
-        )
-        VALUES (
-            v_script_id,
-            CASE
-                WHEN v_character_name IS NOT NULL
-                THEN (v_character_map ->> v_character_name)::UUID
-                ELSE NULL
-            END,
-            (v_line->>'line_number')::INTEGER,
-            v_line_type,
-            v_line->>'content',
-            NULLIF(v_line->>'content_en', ''),
-            CASE
-                WHEN v_line_type = 'scene'
-                THEN (v_line->>'scene_number')::INTEGER
-                ELSE NULL
-            END
-        );
-    END LOOP;
+    -- Líneas: una sola sentencia. Cada línea se enlaza a su personaje por
+    -- nombre. Si hubiera nombres repetidos, gana el último (igual que antes).
+    INSERT INTO script_lines (
+        script_id,
+        character_id,
+        line_number,
+        line_type,
+        content,
+        content_en,
+        scene_number
+    )
+    SELECT
+        v_script_id,
+        ch.id,
+        (l.value->>'line_number')::INTEGER,
+        l.value->>'line_type',
+        l.value->>'content',
+        NULLIF(l.value->>'content_en', ''),
+        CASE
+            WHEN l.value->>'line_type' = 'scene'
+            THEN (l.value->>'scene_number')::INTEGER
+            ELSE NULL
+        END
+    FROM jsonb_array_elements(p_lines) WITH ORDINALITY AS l(value, ord)
+    LEFT JOIN (
+        SELECT DISTINCT ON (c.name) c.name, c.id
+        FROM characters c
+        WHERE c.script_id = v_script_id
+        ORDER BY c.name, c.position DESC
+    ) ch ON ch.name = l.value->>'character_name'
+    ORDER BY l.ord;
 
     RETURN v_script_id;
 END;
@@ -721,37 +704,25 @@ BEGIN
         s.name,
         s.name_en,
         s.project_id,
-        COUNT(DISTINCT c.id) AS character_count,
-        COUNT(DISTINCT sl.id) FILTER (
-            WHERE sl.line_type IN (
-                'dialogue',
-                'thought',
-                'narration'
-            )
-        ) AS line_count,
-        COUNT(DISTINCT sl.id) FILTER (
-            WHERE sl.line_type IN (
-                'dialogue',
-                'thought',
-                'narration'
-            )
-            AND sl.content_en IS NOT NULL
-        ) AS translated_count,
+        (SELECT COUNT(*) FROM characters c WHERE c.script_id = s.id),
+        l.line_count,
+        l.translated_count,
         s.created_at,
         s.updated_at
     FROM scripts s
-    LEFT JOIN characters c
-        ON c.script_id = s.id
-    LEFT JOIN script_lines sl
-        ON sl.script_id = s.id
+    CROSS JOIN LATERAL (
+        SELECT
+            COUNT(*) FILTER (
+                WHERE sl.line_type IN ('dialogue', 'thought', 'narration')
+            ) AS line_count,
+            COUNT(*) FILTER (
+                WHERE sl.line_type IN ('dialogue', 'thought', 'narration')
+                  AND sl.content_en IS NOT NULL
+            ) AS translated_count
+        FROM script_lines sl
+        WHERE sl.script_id = s.id
+    ) l
     WHERE s.user_id = auth.uid()
-    GROUP BY
-        s.id,
-        s.name,
-        s.name_en,
-        s.project_id,
-        s.created_at,
-        s.updated_at
     ORDER BY s.updated_at DESC;
 END;
 $$;
@@ -1040,3 +1011,21 @@ END;
 $$;
 
 
+-- ─────────────────────────────────────────────────────────────
+-- Índices de rendimiento (ver migration_004)
+-- ─────────────────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_scripts_user_updated
+    ON scripts (user_id, updated_at DESC);
+
+-- (scripts.project_id ya tiene índice: scripts_project_id_idx, de migration_001)
+
+CREATE INDEX IF NOT EXISTS idx_characters_script_position
+    ON characters (script_id, position);
+
+CREATE INDEX IF NOT EXISTS idx_script_lines_script_line
+    ON script_lines (script_id, line_number);
+
+-- ON DELETE SET NULL de script_lines.character_id: al borrar un personaje,
+-- Postgres busca sus líneas por esta columna.
+CREATE INDEX IF NOT EXISTS idx_script_lines_character
+    ON script_lines (character_id);

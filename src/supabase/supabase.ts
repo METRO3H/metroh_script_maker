@@ -1,4 +1,5 @@
 
+
 // src/supabase/supabase.ts
 import { createClient } from "@supabase/supabase-js";
 
@@ -18,6 +19,19 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "astro:env/server";
  * cliente con esta función.
  */
 export function create_supabase_client() {
-  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    // En el servidor no hay navegador ni sesión que persistir: las cookies son
+    // la fuente de verdad. Con los valores por defecto, cada cliente (uno por
+    // request) deja un temporizador de auto-refresco vivo, y en servidores de
+    // larga vida esos temporizadores se acumulan y pueden rotar el refresh
+    // token por detrás, dejando desfasada la cookie del usuario.
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  });
 }
+
+
 
