@@ -1,3 +1,4 @@
+
 ---
 import Layout from "@layouts/MainLayout.astro";
 
@@ -5,6 +6,14 @@ const { cookies, redirect } = Astro;
 const accessToken  = cookies.get("sb-access-token");
 const refreshToken = cookies.get("sb-refresh-token");
 if (accessToken && refreshToken) return redirect("/scripts");
+const ERRORS: Record<string, string> = {
+  missing: "Ingresa tu email y tu contraseña.",
+  invalid: "Email o contraseña incorrectos.",
+  unconfirmed: "Debes confirmar tu email antes de entrar. Revisa tu bandeja de entrada.",
+  server: "No pudimos conectar con el servidor. Intenta de nuevo en un momento.",
+};
+const error_key = Astro.url.searchParams.get("error");
+const error_message = error_key && Object.hasOwn(ERRORS, error_key) ? ERRORS[error_key] : null;
 ---
 
 <Layout title="Iniciar sesión">
@@ -22,6 +31,8 @@ if (accessToken && refreshToken) return redirect("/scripts");
       <p class="auth-wordmark">Metroh</p>
       <h1 class="auth-title">Iniciar sesión</h1>
       <p class="auth-subtitle">¿No tienes cuenta? <a href="/auth/register" class="auth-link">Regístrate</a></p>
+
+      {error_message && <p class="auth-error" role="alert">{error_message}</p>}
 
       <form action="/api/auth/login" method="post" class="auth-form">
         <div class="auth-field">
@@ -52,3 +63,5 @@ if (accessToken && refreshToken) return redirect("/scripts");
   .auth-label { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
   .auth-submit { width: 100%; padding: 11px; margin-top: 4px; font-size: 12px; }
 </style>
+
+

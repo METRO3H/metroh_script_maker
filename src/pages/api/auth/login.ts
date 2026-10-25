@@ -1,4 +1,5 @@
 
+
 import type { APIRoute } from "astro";
 import { create_supabase_client } from "@supabase/supabase";
 
@@ -8,7 +9,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const password = formData.get("password")?.toString();
 
   if (!email || !password) {
-    return new Response("Email and password are required", { status: 400 });
+    return redirect("/auth/login?error=missing");
   }
 
   // Cliente propio de este request: nunca reutilizar una instancia compartida,
@@ -20,8 +21,15 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     password,
   });
 
-  if (error) {
-    return new Response(error.message, { status: 401 });
+  if (error || !data.session) {
+    // Códigos de Supabase Auth -> clave corta; la página muestra el texto.
+    const key =
+      error?.code === "email_not_confirmed" ? "unconfirmed"
+      : error?.code === "invalid_credentials" ? "invalid"
+      : error && (error.status ?? 0) >= 500 ? "server"
+      : "invalid";
+    if (error && key !== "invalid") console.error("[auth/login]", error);
+    return redirect(`/auth/login?error=${key}`);
   }
 
   const { access_token, refresh_token } = data.session;
@@ -35,5 +43,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   cookies.set("sb-refresh-token", refresh_token, cookie_options);
   return redirect("/scripts");
 };
+
+
 
 

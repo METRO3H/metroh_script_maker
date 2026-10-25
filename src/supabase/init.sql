@@ -1,4 +1,5 @@
 
+
 -- ═════════════════════════════════════════════════════════════
 -- LIMPIEZA COMPLETA
 -- Elimina las tablas de la aplicación y sus dependencias.
@@ -62,6 +63,7 @@ CREATE TABLE characters (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     script_id  UUID REFERENCES scripts(id) ON DELETE CASCADE NOT NULL,
     name       TEXT NOT NULL,
+    position   INTEGER NOT NULL DEFAULT 0,   -- orden en el guion (ver migration_003)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -578,6 +580,7 @@ DECLARE
     v_user_id        UUID;
     v_line_type      TEXT;
     v_character_name TEXT;
+    v_position       INTEGER := 0;
 BEGIN
     v_user_id := auth.uid();
 
@@ -637,9 +640,11 @@ BEGIN
     END IF;
 
     FOREACH v_character IN ARRAY p_characters LOOP
-        INSERT INTO characters (script_id, name)
-        VALUES (v_script_id, v_character)
+        INSERT INTO characters (script_id, name, position)
+        VALUES (v_script_id, v_character, v_position)
         RETURNING id INTO v_character_id;
+
+        v_position := v_position + 1;
 
         v_character_map :=
             v_character_map ||
@@ -774,7 +779,7 @@ BEGIN
         'characters', (
             SELECT jsonb_agg(
                 jsonb_build_object('name', c.name)
-                ORDER BY c.created_at
+                ORDER BY c.position, c.id
             )
             FROM characters c
             WHERE c.script_id = s.id
@@ -1033,3 +1038,5 @@ BEGIN
       AND word = p_word;
 END;
 $$;
+
+

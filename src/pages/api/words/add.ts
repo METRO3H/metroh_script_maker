@@ -1,8 +1,10 @@
+
 // src/pages/api/words/add.ts
 // Agrega palabras personalizadas (las repetidas se ignoran).
 import type { APIRoute } from "astro";
 import { z } from "zod";
 import { require_auth } from "@utils/auth";
+import { server_error } from "@utils/api";
 
 const AddWordsSchema = z.object({
   lang: z.enum(["es", "en"]),
@@ -40,10 +42,12 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     p_lang: result.data.lang,
     p_words: result.data.words,
   });
-  if (error) return new Response(error.message, { status: 500 });
+  if (error) return server_error("words/add", error);
 
   return new Response(JSON.stringify({ added: data ?? 0 }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
 };
+
+

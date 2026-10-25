@@ -1,5 +1,16 @@
+
 ---
 import Layout from "@layouts/MainLayout.astro";
+const ERRORS: Record<string, string> = {
+  missing: "Ingresa tu email y una contraseña.",
+  exists: "Ya existe una cuenta con ese email.",
+  weak: "La contraseña es muy débil. Usa al menos 6 caracteres, mejor si mezclas letras y números.",
+  email: "El email no es válido.",
+  rate: "Demasiados intentos. Espera unos minutos y vuelve a probar.",
+  unknown: "No se pudo crear la cuenta. Intenta de nuevo.",
+};
+const error_key = Astro.url.searchParams.get("error");
+const error_message = error_key && Object.hasOwn(ERRORS, error_key) ? ERRORS[error_key] : null;
 ---
 
 <Layout title="Crear cuenta">
@@ -27,6 +38,8 @@ import Layout from "@layouts/MainLayout.astro";
         ¿Ya tienes cuenta?
         <a href="/auth/login" class="auth-link">Inicia sesión</a>
       </p>
+
+      {error_message && <p class="auth-error" role="alert">{error_message}</p>}
 
       <form action="/api/auth/register" method="post" class="auth-form">
         <div class="auth-field">
@@ -67,3 +80,5 @@ import Layout from "@layouts/MainLayout.astro";
   .auth-label { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
   .auth-submit { width: 100%; padding: 11px; margin-top: 4px; font-size: 12px; }
 </style>
+
+

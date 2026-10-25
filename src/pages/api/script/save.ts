@@ -1,7 +1,9 @@
+
 // src/pages/api/script/save.ts
 import type { APIRoute } from "astro";
 import { z } from "zod";
 import { require_auth } from "@utils/auth";
+import { server_error } from "@utils/api";
 
 // ✅ Capa 5 — schema Zod para validar el body
 const SaveScriptSchema = z.object({
@@ -56,14 +58,10 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       p_lines: lines,
    });
 
-   if (error) return new Response(error.message, { status: 500 });
+   if (error) return server_error("script/save", error);
 
    return new Response(JSON.stringify({ script_id: data }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
    });
-};
-
-export const GET: APIRoute = async () => {
-   return new Response("save.ts funciona", { status: 200 });
 };

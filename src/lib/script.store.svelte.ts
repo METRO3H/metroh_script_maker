@@ -1,4 +1,5 @@
 
+
 // src/lib/script.store.svelte.ts
 import { tick } from "svelte";
 import type { Character, Lang, Project, ScriptLine } from "@types/script";
@@ -51,6 +52,29 @@ export function create_script_store(
   let rect_cur_y        = $state<number>(0);
   let lines_area_el     = $state<HTMLElement | null>(null);
   let toast_timeout: ReturnType<typeof setTimeout> | null = null;
+
+  // ── Guardado y cambios sin guardar ───────────────────────────
+  // is_saving evita guardados simultáneos (p. ej. Ctrl+S dos veces con un
+  // script nuevo creaba dos scripts). saved_snapshot es la "foto" del
+  // contenido en el último guardado/carga: si difiere de la actual, hay
+  // cambios sin guardar.
+  let is_saving      = $state(false);
+  let saved_snapshot = $state("");
+
+  function make_snapshot(): string {
+    return JSON.stringify([
+      script_title,
+      script_title_en,
+      project_id,
+      characters.map((c) => c.name),
+      full_script.map((l) => [
+        l.is_scene ? 1 : 0, l.is_context ? 1 : 0, l.line_type ?? "",
+        l.character_index, l.text ?? "", l.text_en ?? "", l.scene_number ?? 0,
+      ]),
+    ]);
+  }
+  saved_snapshot = make_snapshot();
+  let is_dirty = $derived(make_snapshot() !== saved_snapshot);
 
   // ── Sugerencias de palabras (local, sin IA) ──────────────────
   // Un suggester por idioma: cada pestaña sugiere con su propio diccionario.
@@ -459,10 +483,11 @@ export function create_script_store(
   function show_toast(status: string) {
     save_status = status;
     if (toast_timeout) clearTimeout(toast_timeout);
-    toast_timeout = setTimeout(() => (save_status = null), 3000);
+    toast_timeout = setTimeout(() => { if (!is_saving) save_status = null; }, 3000);
   }
 
   async function save_script() {
+    if (is_saving) return;
     _json_flush?.();
     if (!script_title.trim()) { show_toast("no_title"); return; }
     // El servidor rechaza líneas sin texto: las que están vacías en ambos idiomas
@@ -471,44 +496,69 @@ export function create_script_store(
     const to_save = full_script.filter((l) => l.is_scene || (l.text ?? "").trim() !== "" || (l.text_en ?? "").trim() !== "");
     const skipped = full_script.length - to_save.length;
     if (to_save.filter((l) => !l.is_scene && !l.is_context).length === 0) { show_toast("no_lines"); return; }
-    show_toast("saving");
-    let res: Response;
-    try {
-      res = await fetch("/api/script/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          script_id,
-          script_name: script_title,
-          script_name_en: script_title_en.trim() || null,
-          project_id,
-          characters: characters.map((c) => c.name),
-          lines: to_save.map((line, i) => {
-            if (line.is_scene) return { line_number: i + 1, line_type: "scene", scene_number: line.scene_number };
-            const content = (line.text ?? "").trim() || undefined;
-            const content_en = (line.text_en ?? "").trim() || undefined;
-            if (line.is_context) return { line_number: i + 1, line_type: "context", content, content_en };
-            return { line_number: i + 1, line_type: line.line_type ?? "dialogue", character_name: characters[line.character_index].name, content, content_en };
-          }),
-        }),
-      });
-    } catch {
-      // Falla de red (no un error HTTP): sin este catch, la promesa rechazada
-      // quedaba sin manejar y el toast de "guardando" solo desaparecía solo
-      // a los 3s sin avisar que en realidad no se guardó nada.
+    // Toda línea con personaje debe apuntar a uno que exista; si no, antes
+    // se lanzaba una excepción sin manejar y el guardado fallaba en silencio.
+    if (to_save.some((l) => !l.is_scene && !l.is_context && !characters[l.character_index])) {
       show_toast("error");
+      push_toast("Hay líneas asignadas a un personaje que no existe. Revisa los personajes.", "error");
       return;
     }
-    if (!res.ok) { show_toast("error"); return; }
-    const { script_id: returned_id } = await res.json();
-    const is_new = script_id === null;
-    script_id = returned_id;
-    if (is_new) history.pushState({}, "", `/scripts/editor?id=${returned_id}`);
-    show_toast("success");
-    const written = to_save.filter((l) => !l.is_scene);
-    remember_unknown_words("es", written.map((l) => l.text ?? ""));
-    remember_unknown_words("en", written.map((l) => l.text_en ?? ""));
-    if (skipped > 0) push_toast(`${skipped} ${skipped === 1 ? "línea vacía no se guardó" : "líneas vacías no se guardaron"}`, "neutral");
+
+    const sent_snapshot = make_snapshot();
+    is_saving = true;
+    show_toast("saving");
+    try {
+      let res: Response;
+      try {
+        res = await fetch("/api/script/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            script_id,
+            script_name: script_title,
+            script_name_en: script_title_en.trim() || null,
+            project_id,
+            characters: characters.map((c) => c.name),
+            lines: to_save.map((line, i) => {
+              if (line.is_scene) return { line_number: i + 1, line_type: "scene", scene_number: line.scene_number };
+              const content = (line.text ?? "").trim() || undefined;
+              const content_en = (line.text_en ?? "").trim() || undefined;
+              if (line.is_context) return { line_number: i + 1, line_type: "context", content, content_en };
+              return { line_number: i + 1, line_type: line.line_type ?? "dialogue", character_name: characters[line.character_index].name, content, content_en };
+            }),
+          }),
+        });
+      } catch {
+        // Falla de red (no un error HTTP).
+        show_toast("error");
+        return;
+      }
+      if (!res.ok) { show_toast("error"); return; }
+
+      let returned_id: string;
+      try {
+        ({ script_id: returned_id } = await res.json());
+      } catch {
+        show_toast("error");
+        return;
+      }
+
+      const is_new = script_id === null;
+      script_id = returned_id;
+      // replaceState: la URL "nueva" reemplaza a la actual en vez de sumar una
+      // entrada al historial (el botón Atrás no debe volver a un editor vacío).
+      if (is_new) history.replaceState({}, "", `/scripts/editor?id=${returned_id}`);
+      // La foto es la de lo que se envió: si el usuario siguió escribiendo
+      // mientras se guardaba, esos cambios siguen contando como pendientes.
+      saved_snapshot = sent_snapshot;
+      show_toast("success");
+      const written = to_save.filter((l) => !l.is_scene);
+      remember_unknown_words("es", written.map((l) => l.text ?? ""));
+      remember_unknown_words("en", written.map((l) => l.text_en ?? ""));
+      if (skipped > 0) push_toast(`${skipped} ${skipped === 1 ? "línea vacía no se guardó" : "líneas vacías no se guardaron"}`, "neutral");
+    } finally {
+      is_saving = false;
+    }
   }
 
   function do_export_txt() {
@@ -545,6 +595,8 @@ export function create_script_store(
     get current_type()         { return current_type; },
     set current_type(v)        { current_type = v; },
     get save_status()          { return save_status; },
+    get is_saving()            { return is_saving; },
+    get is_dirty()             { return is_dirty; },
     get show_onboarding()      { return show_onboarding; },
     get view_mode()            { return view_mode; },
     get select_mode()          { return select_mode; },
@@ -571,5 +623,7 @@ export function create_script_store(
     do_export_txt, do_export_json,
   };
 }
+
+
 
 

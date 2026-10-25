@@ -1,7 +1,9 @@
+
 // src/pages/api/project/create.ts
 import type { APIRoute } from "astro";
 import { z } from "zod";
 import { require_auth } from "@utils/auth";
+import { server_error } from "@utils/api";
 
 const CreateProjectSchema = z.object({
   name: z.string().trim().min(1, "El nombre es requerido").max(120, "El nombre es demasiado largo"),
@@ -26,7 +28,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
   const { data, error } = await auth.supabase.rpc("create_project", { p_name: result.data.name });
   if (error) {
     // 23505 = unique_violation (ya existe un proyecto con ese nombre)
-    return new Response(error.message, { status: error.code === "23505" ? 409 : 500 });
+    return server_error("project/create", error, error.code === "23505" ? 409 : 500);
   }
 
   return new Response(JSON.stringify({ project_id: data }), {
@@ -34,3 +36,5 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     headers: { "Content-Type": "application/json" },
   });
 };
+
+

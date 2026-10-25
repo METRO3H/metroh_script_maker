@@ -1,0 +1,48 @@
+# Tus palabras propias (se suman al diccionario base de es.txt).
+#
+# · Una palabra por línea. Las líneas vacías y las que empiezan con # se ignoran.
+# · Estas palabras se sugieren con prioridad alta (más que casi todo el
+#   diccionario base), así que conviene poner solo lo que de verdad uses:
+#   jerga, muletillas, nombres de lugares o términos de tu historia.
+# · Los nombres de los personajes NO hace falta ponerlos acá: se aprenden solos.
+# · Las palabras que uses en tus guiones y no estén en el diccionario también se
+#   recuerdan solas al guardar (viven en tu cuenta).
+# · No importa si va con mayúscula o sin tilde: el motor lo resuelve.
+# · Después de editar, recarga la página (Ctrl + F5 si no ves el cambio).
+#
+# Interjecciones y muletillas comunes
+hey
+ey
+eh
+ah
+oh
+uf
+uff
+bah
+buah
+mmm
+hmm
+shh
+ajá
+jaja
+jajaja
+jejeje
+
+# Jerga: quita el # de las que quieras activar (o agrega las tuyas)
+# cachai
+# weón
+# po
+# fome
+# bacán
+# pololo
+# polola
+# carrete
+# luca
+# guagua
+# wey
+# chido
+# órale
+# che
+# boludo
+# pibe
+# laburo

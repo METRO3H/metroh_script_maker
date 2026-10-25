@@ -1,4 +1,5 @@
 
+
 <script>
   // ScriptHeader.svelte — título + acciones del editor
   import Icon from "@components/ui/Icon.svelte";
@@ -94,9 +95,10 @@
         class:save-btn-success={store.save_status === "success"}
         class:save-btn-error={store.save_status === "error" || store.save_status === "no_title" || store.save_status === "no_lines"}
         onclick={store.save_script}
-        disabled={store.save_status === "saving"}
+        disabled={store.is_saving}
+        title={store.is_dirty ? "Hay cambios sin guardar" : "Todo guardado"}
       >
-        <span class="save-label" class:save-label-active={store.save_status === null}>Guardar</span>
+        <span class="save-label" class:save-label-active={store.save_status === null}>Guardar{#if store.is_dirty}<span class="dirty-dot" aria-label="Cambios sin guardar"></span>{/if}</span>
         <span class="save-label save-label-icon" class:save-label-active={store.save_status === "saving"}>
           <Icon name="spinner" size={11} stroke_width={2.5} /><span>Guardando</span>
         </span>
@@ -112,6 +114,7 @@
 </div>
 
 <style>
+  .dirty-dot { display: inline-block; width: 6px; height: 6px; margin-left: 6px; vertical-align: middle; border-radius: 50%; background: var(--accent); }
   .lang-tabs { display: flex; align-items: flex-end; gap: 4px; padding: 12px 24px 0; }
   .tabs-spacer { flex: 1; }
   .missing-btn { align-self: center; margin: 0 8px 4px 0; padding: 3px 9px; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: var(--text-muted); background: transparent; border: 1px dashed var(--border-strong); border-radius: 99px; cursor: pointer; transition: color var(--transition), border-color var(--transition), background var(--transition); }
@@ -151,5 +154,7 @@
   .delete-batch-btn:hover:not(:disabled) { opacity: 0.85; }
   .delete-batch-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
+
+
 
 

@@ -1,8 +1,10 @@
+
 // src/pages/api/words/delete.ts
 // Quita una palabra personalizada.
 import type { APIRoute } from "astro";
 import { z } from "zod";
 import { require_auth } from "@utils/auth";
+import { server_error } from "@utils/api";
 
 const DeleteWordSchema = z.object({
   lang: z.enum(["es", "en"]),
@@ -29,10 +31,12 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     p_lang: result.data.lang,
     p_word: result.data.word,
   });
-  if (error) return new Response(error.message, { status: 500 });
+  if (error) return server_error("words/delete", error);
 
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
 };
+
+

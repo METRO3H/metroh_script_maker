@@ -1,4 +1,5 @@
 
+
 /* ─────────────────────────────────────────────────────────
    global.css — Sistema de diseño Metroh Script Maker
    Basado en Linear/Notion con foco en escritura
@@ -363,3 +364,14 @@ dialog {
    user-select: none;
 }
 
+/* Mensaje de error en login / registro */
+.auth-error {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--error-text);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-md);
+}

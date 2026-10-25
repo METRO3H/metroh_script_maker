@@ -1,4 +1,5 @@
 
+
 import type { APIRoute } from "astro";
 import { create_supabase_client } from "@supabase/supabase";
 
@@ -8,7 +9,7 @@ export const POST: APIRoute = async ({ request, redirect }) => {
   const password = formData.get("password")?.toString();
 
   if (!email || !password) {
-    return new Response("Email and password are required", { status: 400 });
+    return redirect("/auth/register?error=missing");
   }
 
   // Cliente propio de este request: nunca reutilizar una instancia compartida.
@@ -17,11 +18,19 @@ export const POST: APIRoute = async ({ request, redirect }) => {
   const { error } = await supabase.auth.signUp({ email, password });
 
   if (error) {
-    console.log(error);
-    return new Response(error.message, { status: 400 });
+    const key =
+      error.code === "user_already_exists" ? "exists"
+      : error.code === "weak_password" ? "weak"
+      : error.code === "email_address_invalid" || error.code === "validation_failed" ? "email"
+      : error.code === "over_email_send_rate_limit" || error.code === "over_request_rate_limit" ? "rate"
+      : "unknown";
+    if (key === "unknown") console.error("[auth/register]", error);
+    return redirect(`/auth/register?error=${key}`);
   }
 
   return redirect("/auth/login");
 };
+
+
 
 

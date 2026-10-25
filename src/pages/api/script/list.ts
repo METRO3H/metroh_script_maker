@@ -1,7 +1,9 @@
 
+
 // src/pages/api/script/list.ts
 import type { APIRoute } from "astro";
 import { require_auth } from "@utils/auth";
+import { server_error } from "@utils/api";
 
 export const GET: APIRoute = async ({ cookies }) => {
   // ✅ Capa 5 — helper centralizado de auth
@@ -9,11 +11,13 @@ export const GET: APIRoute = async ({ cookies }) => {
   if (!auth) return new Response("Unauthorized", { status: 401 });
 
   const { data, error } = await auth.supabase.rpc("get_user_scripts");
-  if (error) return new Response(error.message, { status: 500 });
+  if (error) return server_error("script/list", error);
 
   return new Response(JSON.stringify(data), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
 };
+
+
 

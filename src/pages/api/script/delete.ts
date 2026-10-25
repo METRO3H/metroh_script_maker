@@ -1,8 +1,10 @@
 
+
 // src/pages/api/script/delete.ts
 import type { APIRoute } from "astro";
 import { z } from "zod";
 import { require_auth } from "@utils/auth";
+import { server_error } from "@utils/api";
 
 const DeleteScriptSchema = z.object({
   script_id: z.string().uuid(),
@@ -28,8 +30,10 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     p_script_id: result.data.script_id,
   });
 
-  if (error) return new Response(error.message, { status: 500 });
+  if (error) return server_error("script/delete", error);
 
   return new Response(null, { status: 204 });
 };
+
+
 

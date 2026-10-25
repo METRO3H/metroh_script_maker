@@ -1,0 +1,24 @@
+# Your own words for English suggestions (added on top of en.txt).
+#
+# · One word per line. Blank lines and lines starting with # are ignored.
+# · These get high priority (above almost the whole base dictionary), so only
+#   list what you really use: slang, catchphrases, place names, made-up terms.
+# · Character names do NOT need to be listed: they are learned automatically.
+# · Words you use in your scripts that are not in the dictionary are also
+#   remembered automatically when you save (they live in your account).
+# · After editing, reload the page (Ctrl + F5 if you don't see the change).
+#
+# Interjections and fillers
+hey
+uh
+um
+huh
+aha
+whoa
+shh
+mmm
+hmm
+oops
+duh
+yep
+nope

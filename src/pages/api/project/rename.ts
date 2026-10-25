@@ -1,7 +1,9 @@
+
 // src/pages/api/project/rename.ts
 import type { APIRoute } from "astro";
 import { z } from "zod";
 import { require_auth } from "@utils/auth";
+import { server_error } from "@utils/api";
 
 const RenameProjectSchema = z.object({
   project_id: z.string().uuid(),
@@ -28,7 +30,9 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     p_project_id: result.data.project_id,
     p_name: result.data.name,
   });
-  if (error) return new Response(error.message, { status: error.code === "23505" ? 409 : 500 });
+  if (error) return server_error("project/rename", error, error.code === "23505" ? 409 : 500);
 
   return new Response(null, { status: 204 });
 };
+
+

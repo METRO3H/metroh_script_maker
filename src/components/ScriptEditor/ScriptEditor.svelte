@@ -1,4 +1,5 @@
 
+
 <script>
   // ScriptEditor.svelte — orquestador
   import { untrack } from "svelte";
@@ -140,6 +141,17 @@
       window.removeEventListener("mousedown", store.on_mousedown);
     };
   });
+
+  // ── Aviso al salir con cambios sin guardar ───────────────────
+  $effect(() => {
+    function on_beforeunload(e) {
+      if (!store.is_dirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", on_beforeunload);
+    return () => window.removeEventListener("beforeunload", on_beforeunload);
+  });
 </script>
 
 {#if store.show_onboarding}
@@ -184,5 +196,7 @@
   .btn-danger { background: var(--error-text); color: #fff; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 7px 16px; border-radius: var(--radius-md); border: none; cursor: pointer; transition: opacity var(--transition); }
   .btn-danger:hover { opacity: 0.85; }
 </style>
+
+
 
 
