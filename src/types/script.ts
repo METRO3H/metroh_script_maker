@@ -1,3 +1,4 @@
+
 // src/types/script.ts
 // Tipos del dominio — fuente de verdad para todo el editor
 
@@ -17,6 +18,8 @@ export interface Character {
 }
 
 export interface ScriptLine {
+  /** Identidad estable de la fila en pantalla (solo cliente; no se guarda). La pone set_script(). */
+  uid?: number;
   is_scene?: boolean;
   scene_number?: number;
   is_context?: boolean;
@@ -35,3 +38,5 @@ export interface Script {
   characters: Character[];
   lines: ScriptLine[];
 }
+
+

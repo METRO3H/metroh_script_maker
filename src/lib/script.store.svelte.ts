@@ -37,7 +37,16 @@ export function create_script_store(
   let project_id        = $state<string | null>(init.project_id ?? (initialScript ? null : defaultProjectId));
   let projects          = $state<Project[]>(initialProjects);
   let characters        = $state<Character[]>(init.characters);
-  let full_script       = $state<ScriptLine[]>(init.lines);
+  // El guion es inmutable: cada cambio crea un arreglo nuevo (y objetos nuevos
+  // solo para las líneas que cambian). Por eso es $state.raw: sin proxies
+  // profundos por cada línea. Cada línea lleva un `uid` estable para que la
+  // lista en pantalla sepa cuáles son las mismas filas aunque cambien de lugar
+  // (insertar o borrar una línea ya no vuelve a evaluar todas las siguientes).
+  let next_uid = 1;
+  let full_script       = $state.raw<ScriptLine[]>(init.lines.map((l) => ({ ...l, uid: next_uid++ })));
+  function set_script(lines: ScriptLine[]) {
+    full_script = lines.map((l) => (l.uid === undefined ? { ...l, uid: next_uid++ } : l));
+  }
   let current_input     = $state<string>("");
   let current_character = $state<number>(0);
   let current_type      = $state<string>("dialogue");
@@ -240,18 +249,31 @@ export function create_script_store(
 
   // Líneas que ya tienen texto en español y cuántas de ellas ya están en inglés.
   // (Una línea escrita primero en inglés no cuenta hasta tener su versión en español.)
-  let translatable_count = $derived(full_script.filter((l) => !l.is_scene && (l.text ?? "").trim() !== "").length);
-  let translated_count = $derived(full_script.filter((l) => !l.is_scene && (l.text ?? "").trim() !== "" && (l.text_en ?? "").trim() !== "").length);
+  let translation_counts = $derived.by(() => {
+    let total = 0;
+    let done = 0;
+    for (const l of full_script) {
+      if (l.is_scene || (l.text ?? "").trim() === "") continue;
+      total++;
+      if ((l.text_en ?? "").trim() !== "") done++;
+    }
+    return { total, done };
+  });
+  let translatable_count = $derived(translation_counts.total);
+  let translated_count = $derived(translation_counts.done);
 
+  // Número de la última escena: se busca desde el final (casi siempre está cerca).
   let current_scene_number = $derived.by(() => {
-    const scenes = full_script.filter((l) => l.is_scene);
-    return scenes.length > 0 ? scenes[scenes.length - 1].scene_number ?? 0 : 0;
+    for (let i = full_script.length - 1; i >= 0; i--) {
+      if (full_script[i].is_scene) return full_script[i].scene_number ?? 0;
+    }
+    return 0;
   });
 
   function handle_onboarding_done({ title, characters: chars }: { title: string; characters: string[] }) {
     script_title = title;
     characters = chars.map((name, i) => ({ name, id: i + 1 }));
-    full_script = [{ is_scene: true, scene_number: 1, character_index: -1 }];
+    set_script([{ is_scene: true, scene_number: 1, character_index: -1 }]);
     show_onboarding = false;
   }
 
@@ -268,7 +290,7 @@ export function create_script_store(
     const at_end = at_index >= full_script.length;
     const n = full_script.slice(0, at_index).filter((l) => l.is_scene).length + 1;
     const after = full_script.slice(at_index).map((l) => (l.is_scene ? { ...l, scene_number: (l.scene_number ?? 0) + 1 } : l));
-    full_script = [...full_script.slice(0, at_index), { is_scene: true, scene_number: n, character_index: -1 }, ...after];
+    set_script([...full_script.slice(0, at_index), { is_scene: true, scene_number: n, character_index: -1 }, ...after]);
     if (at_end) scroll_to_bottom();
   }
 
@@ -284,7 +306,7 @@ export function create_script_store(
     const blank: ScriptLine = is_context
       ? { is_context: true, character_index: -1, text: "", text_en: "" }
       : { character_index: current_character, text: "", text_en: "", line_type: current_type };
-    full_script = [...full_script.slice(0, at_index), blank, ...full_script.slice(at_index)];
+    set_script([...full_script.slice(0, at_index), blank, ...full_script.slice(at_index)]);
     return true;
   }
 
@@ -300,36 +322,40 @@ export function create_script_store(
     if (target === from || target === from + 1) return null;
     const rest = full_script.filter((_, i) => i !== from);
     const dest = target > from ? target - 1 : target;
-    full_script = [...rest.slice(0, dest), item, ...rest.slice(dest)];
+    set_script([...rest.slice(0, dest), item, ...rest.slice(dest)]);
     return dest;
   }
 
   function delete_scene(index: number) {
     const before = full_script.slice(0, index);
     const after = full_script.slice(index + 1).map((l) => (l.is_scene ? { ...l, scene_number: (l.scene_number ?? 0) - 1 } : l));
-    full_script = [...before, ...after];
+    set_script([...before, ...after]);
   }
 
-  function scroll_to_scene(scene_number: number, scene_refs: Record<number, HTMLElement>) {
+  /** Elemento de la escena que está en la posición `index` del guion (o null). */
+  function scene_element(index: number): HTMLElement | null {
+    return lines_area_el?.querySelector<HTMLElement>(`[data-scene-index="${index}"]`) ?? null;
+  }
+
+  function scroll_to_scene(scene_number: number) {
     const idx = full_script.findIndex((l) => l.is_scene && l.scene_number === scene_number);
     if (idx === -1) return;
-    const el = scene_refs[idx];
-    if (el && lines_area_el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    scene_element(idx)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function handle_delete_character({ index, mode }: { index: number; mode: string }) {
     if (mode === "remove_lines") {
-      full_script = full_script.filter((l) => l.is_scene || l.character_index !== index);
+      set_script(full_script.filter((l) => l.is_scene || l.character_index !== index));
     } else {
       const unknown_count = characters.filter((c) => c.name.startsWith("Desconocido ")).length;
       const unknown_name = `Desconocido ${unknown_count + 1}`;
       const new_chars = [...characters, { name: unknown_name, id: Date.now() }];
       const unknown_index = new_chars.length - 1;
-      full_script = full_script.map((l) => !l.is_scene && l.character_index === index ? { ...l, character_index: unknown_index } : l);
+      set_script(full_script.map((l) => !l.is_scene && l.character_index === index ? { ...l, character_index: unknown_index } : l));
       characters = new_chars;
     }
     const next_chars = characters.filter((_, i) => i !== index);
-    full_script = full_script.map((l) => l.is_scene ? l : { ...l, character_index: l.character_index > index ? l.character_index - 1 : l.character_index });
+    set_script(full_script.map((l) => l.is_scene ? l : { ...l, character_index: l.character_index > index ? l.character_index - 1 : l.character_index }));
     characters = next_chars;
     // Igual que con las líneas: si el personaje activo era el borrado, resetear;
     // si estaba después en la lista, correrlo un lugar para que siga apuntando
@@ -355,9 +381,9 @@ export function create_script_store(
     if (!input) return;
     const own = lang === "en" ? { text: "", text_en: input } : { text: input, text_en: "" };
     if (current_character === -1) {
-      full_script = [...full_script, { is_context: true, character_index: -1, ...own }];
+      set_script([...full_script, { is_context: true, character_index: -1, ...own }]);
     } else {
-      full_script = [...full_script, { character_index: current_character, ...own, line_type: current_type }];
+      set_script([...full_script, { character_index: current_character, ...own, line_type: current_type }]);
     }
     learn_from(input);
     current_input = "";
@@ -369,7 +395,7 @@ export function create_script_store(
     const next = lang === "en" ? new_text.trim() : capitalize_first(new_text);
     if ((full_script[i]?.[field] ?? "") === next) return;
     learn_from(next);
-    full_script = full_script.map((l, index) => (index === i ? { ...l, [field]: next } : l));
+    set_script(full_script.map((l, index) => (index === i ? { ...l, [field]: next } : l)));
   }
 
   // ── Idioma activo ────────────────────────────────────────────
@@ -389,7 +415,11 @@ export function create_script_store(
   // se escribieron primero en inglés.
   const lacks = (l: ScriptLine, in_lang: Lang) =>
     !l.is_scene && (in_lang === "en" ? (l.text ?? "") : (l.text_en ?? "")).trim() !== "" && (in_lang === "en" ? (l.text_en ?? "") : (l.text ?? "")).trim() === "";
-  let missing_count = $derived(full_script.filter((l) => lacks(l, lang)).length);
+  let missing_count = $derived.by(() => {
+    let n = 0;
+    for (const l of full_script) if (lacks(l, lang)) n++;
+    return n;
+  });
 
   function focus_first_missing() {
     const idx = full_script.findIndex((l) => lacks(l, lang));
@@ -423,7 +453,7 @@ export function create_script_store(
 
   function delete_line(index: number) {
     if (select_mode) return;
-    full_script = full_script.filter((_, i) => i !== index);
+    set_script(full_script.filter((_, i) => i !== index));
   }
 
   // ── Vista JSON ───────────────────────────────────────────────
@@ -447,12 +477,12 @@ export function create_script_store(
       characters = data.characters.map((name, i) => ({ name, id: i + 1 }));
       if (current_character >= characters.length) current_character = 0;
     }
-    full_script = data.lines;
+    set_script(data.lines);
     selected = new Set();
   }
 
   function enter_select_mode(index: number) { select_mode = true; selected = new Set([index]); }
-  function exit_select_mode() { select_mode = false; selected = new Set(); rect_active = false; rect_pending = false; }
+  function exit_select_mode() { cancel_rect_frame(); select_mode = false; selected = new Set(); rect_active = false; rect_pending = false; }
 
   function toggle_select(index: number) {
     if (!full_script[index]?.is_scene) {
@@ -466,7 +496,7 @@ export function create_script_store(
   function set_batch_delete_handler(fn: () => void) { _on_request_batch_delete = fn; }
   function request_batch_delete() { if (selected.size > 0) _on_request_batch_delete?.(); }
   function execute_batch_delete() {
-    full_script = full_script.filter((_, i) => !selected.has(i));
+    set_script(full_script.filter((_, i) => !selected.has(i)));
     exit_select_mode();
   }
 
@@ -476,13 +506,26 @@ export function create_script_store(
     const ry1 = Math.min(rect_start_y, rect_cur_y);
     const ry2 = Math.max(rect_start_y, rect_cur_y);
     const new_selected = new Set<number>();
-    document.querySelectorAll("[data-line-index]").forEach((el) => {
+    (lines_area_el ?? document).querySelectorAll("[data-line-index]").forEach((el) => {
       const idx = parseInt((el as HTMLElement).dataset.lineIndex ?? "");
       if (isNaN(idx) || full_script[idx]?.is_scene) return;
       const r = el.getBoundingClientRect();
       if (r.bottom >= ry1 - 4 && r.top <= ry2 + 4 && r.right >= rx1 && r.left <= rx2) new_selected.add(idx);
     });
+    // Misma selección que antes: no se reasigna (reasignar el Set vuelve a
+    // evaluar el estado "seleccionada" de todas las líneas en cada movimiento).
+    if (new_selected.size === selected.size && [...new_selected].every((i) => selected.has(i))) return;
     selected = new_selected;
+  }
+
+  // Como mucho una actualización por fotograma mientras se arrastra.
+  let rect_raf = 0;
+  function cancel_rect_frame() {
+    if (rect_raf) { cancelAnimationFrame(rect_raf); rect_raf = 0; }
+  }
+  function schedule_rect_update() {
+    if (rect_raf) return;
+    rect_raf = requestAnimationFrame(() => { rect_raf = 0; if (rect_active) update_rect_selection(); });
   }
 
   function on_mousemove(e: MouseEvent) {
@@ -494,12 +537,17 @@ export function create_script_store(
       if (dx > RECT_THRESHOLD || dy > RECT_THRESHOLD) { rect_pending = false; rect_active = true; }
       else return;
     }
-    update_rect_selection();
+    schedule_rect_update();
   }
 
   function on_mouseup() {
     rect_pending = false;
-    if (rect_active) { rect_active = false; if (selected.size > 0) select_mode = true; }
+    if (rect_active) {
+      cancel_rect_frame();
+      update_rect_selection(); // selección final exacta, aunque falte el último fotograma
+      rect_active = false;
+      if (selected.size > 0) select_mode = true;
+    }
   }
 
   function on_mousedown(e: MouseEvent) {
@@ -511,7 +559,9 @@ export function create_script_store(
     rect_pending = true; rect_active = false;
     rect_start_x = e.clientX; rect_start_y = e.clientY;
     rect_cur_x = e.clientX; rect_cur_y = e.clientY;
-    selected = new Set();
+    if (selected.size > 0) {
+      selected = new Set();
+    }
   }
 
   function show_toast(status: string) {
@@ -646,7 +696,7 @@ export function create_script_store(
     sync_suggestions, apply_suggestion, cycle_suggestion,
     set_lang, focus_first_missing,
     set_project, create_project,
-    insert_scene, insert_line, move_line, delete_scene, scroll_to_scene,
+    insert_scene, insert_line, move_line, delete_scene, scroll_to_scene, scene_element,
     handle_delete_character,
     save_input, update_line, delete_line,
     enter_select_mode, exit_select_mode, toggle_select,

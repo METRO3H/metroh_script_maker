@@ -1,0 +1,15 @@
+Herramientas de medición (opcionales, no forman parte de la app).
+
+Instalar una vez:   npm i -D vitest jsdom
+Copiar vitest.bench.config.ts a la raíz del proyecto y la carpeta bench/ junto a ella.
+
+Rendimiento del editor (1000 líneas por defecto):
+  NODE_ENV=production BENCH_LINES=1000 npx vitest run --config vitest.bench.config.ts --mode production
+
+Comparar el comportamiento de dos versiones del código (genera una traza JSON de cada una):
+  TRACE_OUT=/tmp/traza.json NODE_ENV=production BENCH_FILE=bench/behavior.test.ts \
+    BENCH_SRC=/ruta/a/otra/version/src npx vitest run --config vitest.bench.config.ts --mode production
+
+Notas: se ejecuta en jsdom (un DOM simulado, sin layout ni pintado), así que los tiempos absolutos
+no son los de un navegador; sirven para comparar versiones entre sí. Usa siempre NODE_ENV=production:
+sin eso Svelte corre en modo desarrollo y los números salen inflados.

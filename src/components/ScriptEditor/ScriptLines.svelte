@@ -1,11 +1,11 @@
 
+
 <script>
   // ScriptLines.svelte — área scrolleable de líneas
   import { tick } from "svelte";
   import { char_color } from "@lib/script.utils";
-  import Icon from "@components/ui/Icon.svelte";
 
-  let { store, scene_refs = $bindable({}) } = $props();
+  let { store } = $props();
 
   // Cada tipo de línea tiene un ícono SVG (los emojis se renderizaban distinto
   // en cada sistema y desalineaban el badge) y un color propio.
@@ -164,6 +164,17 @@
 
 <svelte:window onmouseup={handle_window_mouseup} />
 
+<!--
+  Íconos de cada fila como SVG estático (mismo dibujo que ui/Icon.svelte). Con
+  Icon.svelte se creaba una instancia de componente por cada ícono de cada
+  línea (5 por fila): en un guion largo eran miles de componentes.
+-->
+{#snippet ico_grip()}<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>{/snippet}
+{#snippet ico_plus()}<svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>{/snippet}
+{#snippet ico_trash()}<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>{/snippet}
+{#snippet ico_x()}<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>{/snippet}
+{#snippet ico_badge(name)}{#if name === "message"}<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{:else if name === "cloud"}<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>{:else if name === "pen"}<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>{:else}<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>{/if}{/snippet}
+
 {#snippet meta(line, index, interactive)}
   {@const kind = line.is_context ? "context" : (line.line_type ?? "dialogue")}
   {@const badge = TYPE_BADGE[kind] ?? TYPE_BADGE.dialogue}
@@ -186,7 +197,7 @@
       >{name}</span>
     {/if}
     <span class="line-badge badge-{kind}">
-      <Icon name={badge.icon} size={8} stroke_width={2.5} />
+      {@render ico_badge(badge.icon)}
       <span class="badge-text">{badge.label}</span>
     </span>
   </div>
@@ -203,10 +214,10 @@
     </div>
   {/if}
 
-  {#each store.full_script as line, index}
+  {#each store.full_script as line, index (line.uid)}
     {#if line.is_scene}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="scene-separator" bind:this={scene_refs[index]}
+      <div class="scene-separator" data-scene-index={index}
         class:drop-above={show_drop(index)}
         class:drop-below={index === store.full_script.length - 1 && show_drop(index + 1)}
         ondragover={(e) => handle_drag_over(e, index)}
@@ -216,7 +227,7 @@
           <div class="scene-line"></div>
           <button class="scene-delete" onclick={() => store.delete_scene(index)}
             aria-label="Eliminar escena {line.scene_number}" title="Eliminar escena">
-            <Icon name="x" size={10} stroke_width={3} />
+            {@render ico_x()}
           </button>
         </div>
       </div>
@@ -254,18 +265,18 @@
           <span class="drag-handle" draggable="true" data-no-rect title="Arrastra para mover la línea (o Alt + ↑ / ↓)"
             role="presentation"
             ondragstart={(e) => handle_drag_start(e, index)} ondragend={reset_drag}>
-            <Icon name="grip" size={14} />
+            {@render ico_grip()}
           </span>
         {/if}
 
         <div class="insert-actions">
           <button class="insert-btn" onclick={() => insert_line_here(index)}
             title="Insertar una línea aquí" aria-label="Insertar línea antes de esta línea" tabindex="-1">
-            <Icon name="plus" size={9} stroke_width={2.5} />línea
+            {@render ico_plus()}línea
           </button>
           <button class="insert-btn" onclick={() => store.insert_scene(index)}
             title="Insertar escena aquí" aria-label="Insertar escena antes de esta línea" tabindex="-1">
-            <Icon name="plus" size={9} stroke_width={2.5} />escena
+            {@render ico_plus()}escena
           </button>
         </div>
 
@@ -299,7 +310,7 @@
           <button class="line-delete" onclick={() => store.delete_line(index)}
             aria-label="Eliminar línea" tabindex="-1"
             title="Eliminar línea">
-            <Icon name="trash" size={14} />
+            {@render ico_trash()}
           </button>
         {/if}
       </div>
@@ -422,5 +433,7 @@
   .with-ref .line-input { background: var(--bg-subtle); border-color: var(--border); }
   .with-ref .line-input::placeholder { color: var(--text-placeholder); }
 </style>
+
+
 
 

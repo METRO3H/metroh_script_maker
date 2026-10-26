@@ -14,7 +14,6 @@
 
   const store = untrack(() => create_script_store(initialScript, initialProjects, defaultProjectId));
 
-  let scene_refs    = $state({});
   let char_menu     = $state(null);
   let delete_dialog = $state(null);
 
@@ -31,7 +30,7 @@
 
   function scene_top(n, area_top) {
     const idx = store.full_script.findIndex((l) => l.is_scene && l.scene_number === n);
-    const el = scene_refs[idx];
+    const el = store.scene_element(idx);
     return el ? el.getBoundingClientRect().top - area_top : null;
   }
 
@@ -63,7 +62,7 @@
       ? (i > 0 ? numbers[i - 1] : numbers[numbers.length - 1])
       : (i >= 0 && i < numbers.length - 1 ? numbers[i + 1] : numbers[0]);
     nav_scene = target;
-    store.scroll_to_scene(target, scene_refs);
+    store.scroll_to_scene(target);
   }
 
   function cycle_type() {
@@ -174,7 +173,7 @@
       <ScriptJsonView {store} />
     {/key}
   {:else}
-    <ScriptLines {store} bind:scene_refs />
+    <ScriptLines {store} />
     <div class="editor-divider"></div>
     <ScriptInputZone {store} bind:char_menu />
   {/if}
