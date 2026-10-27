@@ -15,11 +15,13 @@
 //     y conocidas, salvo que haya una variante con tilde.
 //
 // Las palabras del diccionario NO viven en el código: se cargan desde archivos
-// de texto con load_words() (ver public/words/). Con ~200 mil palabras el
+// de texto con load_words() (ver src/assets/words/). Con ~200 mil palabras el
 // índice se arma por prefijo de 2 letras, así que cada tecla solo recorre un
 // pedazo del diccionario y no todo.
 
 import { TRAILING_WORD_RE, apply_word } from "./suggest.text";
+
+const RANK_OFFSET_DIRECTIVE = "#rank_offset=";
 
 export type SuggestionKind = "complete" | "fix";
 
@@ -132,7 +134,7 @@ export function create_suggester() {
 
   /**
    * Carga un archivo de palabras: una por línea; las líneas vacías o que
-   * empiezan con # se ignoran. Se puede llamar varias veces (diccionario
+   * empiezan con # se ignoran (salvo la directiva #rank_offset=N). Se puede llamar varias veces (diccionario
    * grande + palabras propias). Devuelve cuántas palabras nuevas sumó.
    */
   function load_words(text: string, opts: LoadWordsOptions = {}): number {
@@ -140,7 +142,13 @@ export function create_suggester() {
     let added = 0;
     for (const raw of text.split("\n")) {
       const line = raw.trim();
-      if (!line || line.charCodeAt(0) === 35 /* # */) continue;
+      if (!line) continue;
+      if (line.charCodeAt(0) === 35 /* # */) {
+        // "#rank_offset=N": este archivo continúa a otro (ver scripts/split_words.py);
+        // el puntaje sigue contando desde la posición N, como si fuera un solo archivo.
+        if (line.startsWith(RANK_OFFSET_DIRECTIVE)) rank = Number(line.slice(RANK_OFFSET_DIRECTIVE.length)) || 0;
+        continue;
+      }
       const display = line.split(/\s+/, 1)[0]; // tolera "palabra 12345"
       const this_rank = rank++;
       const key = fold(display);

@@ -108,12 +108,14 @@ export function create_script_store(
   suggest_client.learn("es", initial_lines.map((l) => l.text ?? "").join("\n"));
   suggest_client.learn("en", initial_lines.map((l) => l.text_en ?? "").join("\n"));
 
-  // Diccionarios base (archivos de texto en public/words/). El español se pide
+  // Diccionarios base (archivos de texto en src/assets/words/). El español se pide
   // al abrir; el inglés solo cuando hace falta (pestaña English o al guardar
   // texto en inglés): ahorra descarga, CPU y memoria a quien no lo usa.
   const dictionary_loads: Partial<Record<Lang, Promise<void>>> = {};
   function ensure_dictionary(lg: Lang): Promise<void> {
-    return (dictionary_loads[lg] ??= load_word_files(suggest_client, lg).then(() => {
+    // Se vuelven a pedir las sugerencias en cuanto llega cada archivo (el nivel 1
+    // alcanza para sugerir); la promesa solo se cumple cuando están todos.
+    return (dictionary_loads[lg] ??= load_word_files(suggest_client, lg, () => {
       if (typeof window !== "undefined") vocab_version++;
     }));
   }

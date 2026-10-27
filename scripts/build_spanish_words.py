@@ -1,6 +1,7 @@
+
 #!/usr/bin/env python3
 """
-Genera los diccionarios base de sugerencias: public/words/es.txt y en.txt.
+Genera los diccionarios base de sugerencias: src/assets/words/es.txt y en.txt.
 
 Combina dos fuentes abiertas:
   · Frecuencias reales en diálogo (FrequencyWords, OpenSubtitles 2018, CC BY-SA 4.0).
@@ -17,12 +18,18 @@ Cómo obtener los insumos (una sola vez):
 
 Uso:
 
-  python3 scripts/build_spanish_words.py --lang es --freq es_full.txt --dict es_dict.json --other-dict en_dict.json --out public/words/es.txt
-  python3 scripts/build_spanish_words.py --lang en --freq en_full.txt --dict en_dict.json --other-dict es_dict.json --out public/words/en.txt
+  python3 scripts/build_spanish_words.py --lang es --freq es_full.txt --dict es_dict.json --other-dict en_dict.json --out src/assets/words/es.txt
+  python3 scripts/build_spanish_words.py --lang en --freq en_full.txt --dict en_dict.json --other-dict es_dict.json --out src/assets/words/en.txt
 
 Ajustes útiles: --min-count (más alto = lista más corta y limpia),
 --min-count-other (palabras que no están en el diccionario: nombres, jerga).
-Las palabras propias se agregan a mano en public/words/<idioma>.custom.txt, no acá.
+Después de generar cada archivo, divídelo en dos niveles (el editor carga primero
+las palabras más frecuentes y sugiere enseguida; el resto llega después):
+
+  python3 scripts/split_words.py src/assets/words/es.txt
+  python3 scripts/split_words.py src/assets/words/en.txt
+
+Las palabras propias se agregan a mano en src/assets/words/<idioma>.custom.txt, no acá.
 """
 import argparse, json, re, unicodedata
 
@@ -35,7 +42,7 @@ HEADER = """# Diccionario base de sugerencias de palabras ({language}).
 # tildes y adapta la mayúscula a lo que se está escribiendo.
 #
 # Para agregar tus propias palabras NO edites este archivo (se puede regenerar):
-# usa public/words/{lang}.custom.txt.
+# usa src/assets/words/{lang}.custom.txt.
 #
 # Fuentes y licencias:
 #  · Frecuencias: FrequencyWords (hermitdave), basado en OpenSubtitles 2018,
@@ -235,7 +242,7 @@ def main():
     ap.add_argument("--variant-ratio", type=float, default=0.005, help="(es) una variante con/sin tilde debe tener al menos esta fracción de la forma más usada")
     ap.add_argument("--unaccented-ratio", type=float, default=0.02, help="(es) la forma sin tilde debe tener al menos esta fracción de la forma con tilde")
     args = ap.parse_args()
-    out_path = args.out or f"public/words/{args.lang}.txt"
+    out_path = args.out or f"src/assets/words/{args.lang}.txt"
 
     dic = set(json.load(open(args.dict, encoding="utf-8")))
     other = set(json.load(open(args.other_dict, encoding="utf-8")))
@@ -261,3 +268,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

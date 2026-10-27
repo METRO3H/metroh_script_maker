@@ -7,6 +7,7 @@
 // El trabajo real está en suggest.core.ts; esto solo conecta los mensajes.
 
 import { create_core, type Req } from "./suggest.core";
+import { fetch_word_text } from "./word_cache";
 
 const ctx = self as unknown as {
   postMessage(message: unknown): void;
@@ -14,11 +15,7 @@ const ctx = self as unknown as {
 };
 
 const core = create_core({
-  async fetch_text(url) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.text();
-  },
+  fetch_text: (url, cache_key) => fetch_word_text(url, cache_key),
 });
 
 ctx.onmessage = (e) => {

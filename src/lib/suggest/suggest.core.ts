@@ -12,7 +12,7 @@ export type { WordLang };
 
 export type Req =
   // El worker descarga y procesa el archivo: el texto nunca pasa por el hilo principal.
-  | { type: "load_file"; id: number; lang: WordLang; url: string; score?: number }
+  | { type: "load_file"; id: number; lang: WordLang; url: string; score?: number; cache_key?: string }
   | { type: "load_words"; lang: WordLang; text: string; score?: number }
   | { type: "learn"; lang: WordLang; text: string }
   | { type: "learn_names"; names: string[] }
@@ -25,8 +25,11 @@ export type Res =
   | { type: "unknown"; id: number; words: string[] };
 
 export interface CoreDeps {
-  /** Devuelve el texto de un archivo o lanza si no se pudo (sin red, 404…). */
-  fetch_text(url: string): Promise<string>;
+  /**
+   * Devuelve el texto de un archivo o lanza si no se pudo (sin red, 404…).
+   * `cache_key` identifica el archivo en la caché local (ver word_cache.ts).
+   */
+  fetch_text(url: string, cache_key?: string): Promise<string>;
 }
 
 export function create_core(deps: CoreDeps) {
@@ -41,7 +44,7 @@ export function create_core(deps: CoreDeps) {
     switch (req.type) {
       case "load_file": {
         try {
-          const text = await deps.fetch_text(req.url);
+          const text = await deps.fetch_text(req.url, req.cache_key);
           engines[req.lang].load_words(text, req.score === undefined ? {} : { score: req.score });
           return { type: "loaded", id: req.id, ok: true };
         } catch (err) {

@@ -1,4 +1,5 @@
 
+
 # Metroh Script Maker
 
 ![Astro](https://img.shields.io/badge/Astro-6-BC52EE?logo=astro&logoColor=white)
@@ -38,7 +39,7 @@ Metroh Script Maker combines a focused script-writing interface with account-bas
 - Words you use that are not in that language's dictionary (names, slang, invented terms) are saved to your account (table `custom_words`) when you save the script, and suggested from then on, in any script and on any device. A word that appears once and is one letter away from a known word is treated as a typo and skipped. If the save to the account fails, the words still work for the current session and the next save retries.
 - Words saved before this table existed (kept in the browser's `localStorage`) are uploaded to your account automatically the first time the editor opens.
 - Learns from the script itself: words from existing lines and character names rank above the built-in Spanish word list.
-- The word list is **not in the code**: it lives in plain text files under `public/words/` (`es.txt` ~209k words and `en.txt` ~115k words, plus `es.custom.txt` / `en.custom.txt` for your own words — see "Adding words" below).
+- The word list is **not in the code**: it lives in plain text files under `src/assets/words/` (`es` ~209k words and `en` ~115k words, each split in two levels — `es.txt` = the 30k most frequent, `es.rest.txt` = the rest — plus `es.custom.txt` / `en.custom.txt` for your own words — see "Adding words" below).
 - Handles accent restoration (`estacion` → `estación`) and one/two-letter typos (`habalr` → `hablar`).
 
 ### Projects
@@ -220,7 +221,7 @@ script.store.svelte.ts  (vocab version + `suggestions` derived)
 suggest.engine.ts  (pure TypeScript, no DOM, no Svelte)
       │
       ▼
-word_files.ts ──► public/words/{es,en}.txt + {es,en}.custom.txt  (fetched once, cached by the browser)
+word_files.ts ──► src/assets/words/{es,en}.txt + .rest.txt + .custom.txt  (content-hashed URLs, fetched by the worker, cached in IndexedDB)
 learned_words.ts ──► /api/words/*  (custom words in your account)
 ```
 
@@ -230,8 +231,8 @@ learned_words.ts ──► /api/words/*  (custom words in your account)
 
 #### Adding words
 
-- **Your own words** (slang, catchphrases, place names): add them to `public/words/es.custom.txt` (or `en.custom.txt`), one per line (`#` starts a comment). Reload the page. No code changes. Words you use in scripts are also saved automatically in your account (see above).
-- **Another file** (for example a glossary for one story): drop it in `public/words/` and add it to `WORD_FILES` in `src/lib/suggest/word_files.ts`.
+- **Your own words** (slang, catchphrases, place names): add them to `src/assets/words/es.custom.txt` (or `en.custom.txt`), one per line (`#` starts a comment). Reload the page (in production, redeploy: the file's URL changes with its content, so browsers pick up the new version by themselves). No code changes. Words you use in scripts are also saved automatically in your account (see above).
+- **Another file** (for example a glossary for one story): drop it in `src/assets/words/`, import it in `src/lib/suggest/word_files.ts` with `?url&no-inline` and add it to `WORD_FILES`.
 - **Regenerating the big dictionaries**: `scripts/build_spanish_words.py --lang es|en` rebuilds `es.txt` / `en.txt` from word-frequency data (OpenSubtitles) validated against a dictionary of that language; its header explains how to get the inputs and which thresholds to tune. Both files are derived from FrequencyWords (CC BY-SA 4.0) — keep the attribution in their headers.
 - Typo corrections (Damerau-Levenshtein distance ≤ 1, or ≤ 2 for words of 8+ letters) are only offered when the typed text does not complete any known word.
 
@@ -389,7 +390,7 @@ The editor intentionally keeps the domain logic separate from the UI components:
 - `script.store.svelte.ts` manages editor state and operations.
 - `script.utils.ts` contains pure script/export utilities.
 - `suggest.engine.ts` implements word completion and typo correction.
-- `word_files.ts` lists the plain-text dictionaries (`public/words/`) loaded per language; `learned_words.ts` talks to `/api/words/*` for the per-account custom words.
+- `word_files.ts` lists the plain-text dictionaries (`src/assets/words/`) loaded per language (levels in order, cached locally by `word_cache.ts`); `learned_words.ts` talks to `/api/words/*` for the per-account custom words.
 
 ---
 
@@ -402,5 +403,7 @@ The editor intentionally keeps the domain logic separate from the UI components:
 ## Author
 
 [METRO3H](https://github.com/METRO3H)
+
+
 
 

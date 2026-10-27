@@ -38,14 +38,10 @@ export function create_suggest_client() {
 
   // ── Plan B: el mismo núcleo, en el hilo principal ─────────────
   async function start_inline() {
-    const { create_core } = await import("./suggest.core");
+    const [{ create_core }, { fetch_word_text }] = await Promise.all([import("./suggest.core"), import("./word_cache")]);
     if (closed) return;
     const core = create_core({
-      async fetch_text(url) {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.text();
-      },
+      fetch_text: (url, cache_key) => fetch_word_text(url, cache_key),
     });
     const inline: Transport = {
       post(req) {
@@ -103,8 +99,8 @@ export function create_suggest_client() {
 
   return {
     /** El worker descarga y procesa el archivo. true si se cargó. */
-    async load_file(lang: WordLang, url: string, score?: number): Promise<boolean> {
-      const res = await ask((id) => ({ type: "load_file", id, lang, url, score }));
+    async load_file(lang: WordLang, url: string, score?: number, cache_key?: string): Promise<boolean> {
+      const res = await ask((id) => ({ type: "load_file", id, lang, url, score, cache_key }));
       return res?.type === "loaded" && res.ok;
     },
     load_words(lang: WordLang, text: string, score?: number) {
