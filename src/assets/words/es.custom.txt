@@ -1,3 +1,4 @@
+
 # Tus palabras propias (se suman al diccionario base de es.txt).
 #
 # · Una palabra por línea. Las líneas vacías y las que empiezan con # se ignoran.
@@ -46,3 +47,5 @@ jejeje
 # boludo
 # pibe
 # laburo
+
+
