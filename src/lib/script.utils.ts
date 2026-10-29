@@ -1,8 +1,32 @@
-
 // src/lib/script.utils.ts
 // Utilidades puras del dominio — sin estado, sin efectos secundarios
 
-import type { Character, Lang, ScriptLine } from "@types/script";
+import { PERSPECTIVE_ALL, SCENE_MODES, DEFAULT_SCENE_MODE, type Character, type Lang, type SceneMode, type ScriptLine } from "@types/script";
+
+// ── Perspectivas de una escena (visible_in) ──────────────────────
+// Regla que aplica el juego: al elegir "ver todas las perspectivas" se ve todo;
+// al elegir la perspectiva de un personaje, solo las escenas cuyo visible_in
+// lo nombra. ["all"] (el valor por defecto) = escena que solo existe en la
+// vista completa.
+//
+// Normaliza una lista: sin repetidos (sin distinguir mayúsculas), con los
+// nombres escritos como en `names`, en el orden de los personajes, y sin
+// "all" cuando hay nombres (la vista completa ya lo incluye todo). Una lista
+// vacía vuelve a ["all"]. Los nombres que no son personajes se descartan.
+export function normalize_visible_in(list: readonly string[] | undefined, names: readonly string[]): string[] {
+  const wanted = new Set((list ?? []).map((n) => n.trim().toLowerCase()));
+  const picked = names.filter((n) => wanted.has(n.trim().toLowerCase()));
+  return picked.length ? picked : [PERSPECTIVE_ALL];
+}
+
+export const scene_visible_in = (line: ScriptLine | undefined): string[] =>
+  line?.visible_in?.length ? line.visible_in : [PERSPECTIVE_ALL];
+
+export const scene_mode = (line: ScriptLine | undefined): SceneMode =>
+  line?.mode && (SCENE_MODES as readonly string[]).includes(line.mode) ? line.mode : DEFAULT_SCENE_MODE;
+
+export const is_all_only = (visible_in: readonly string[]): boolean =>
+  visible_in.length === 0 || (visible_in.length === 1 && visible_in[0] === PERSPECTIVE_ALL);
 
 // ── Colores dinámicos por personaje ──────────────────────────────
 // Hues equidistantes en HSL, offset 30° para evitar el violeta del accent (~265°)
@@ -57,27 +81,32 @@ export function export_txt(lines: ScriptLine[], characters: Character[], title: 
 
 // ── Script ⇄ JSON ────────────────────────────────────────────────
 // La vista JSON es independiente por idioma, así nada se duplica:
-//   · es → { name, characters, scenes: [[{ type, character, content }]] }
-//          con el texto en español
+//   · es → { name, characters, scenes: [{ scene_id?, pov?, mode, visible_in, lines: [{ type, character, content }] }] }
+//          con el texto en español. scene_id (texto libre), pov (un personaje) y
+//          mode ("render" | "static") son datos de la escena; scene_id y pov se
+//          omiten si están vacíos. visible_in dice en qué perspectivas se ve
+//          la escena: ["all"] = solo en "ver todas las perspectivas";
+//          ["Haruto"] = también en la perspectiva de Haruto.
 //   · en → lo mismo, con el texto en inglés
 // En ambos la estructura (escenas, personajes, orden y tipos) se puede editar.
 // Cada idioma lleva solo su texto: al aplicar, el texto del otro idioma se
 // devuelve a cada línea (ver carry_other_language).
 export type JsonLang = "es" | "en";
 
-// Agrupa los índices de las líneas por escena. Si hay líneas antes de la
+// Agrupa los índices de las líneas por escena (y guarda la línea de la escena,
+// de donde sale su visible_in). Si hay líneas antes de la
 // primera escena (p. ej. se borró la escena inicial) forman un bloque
 // implícito, para que ningún contenido se pierda.
-function group_scenes(lines: ScriptLine[]): { items: number[] }[] {
-  const groups: { items: number[] }[] = [];
-  let current: { items: number[] } | null = null;
+function group_scenes(lines: ScriptLine[]): { scene: ScriptLine | null; items: number[] }[] {
+  const groups: { scene: ScriptLine | null; items: number[] }[] = [];
+  let current: { scene: ScriptLine | null; items: number[] } | null = null;
   lines.forEach((line, i) => {
     if (line.is_scene) {
-      current = { items: [] };
+      current = { scene: line, items: [] };
       groups.push(current);
     } else {
       if (current === null) {
-        current = { items: [] };
+        current = { scene: null, items: [] };
         groups.push(current);
       }
       current.items.push(i);
@@ -93,8 +122,12 @@ export function build_script_json(
   title_en: string,
   lang: JsonLang = "es",
 ) {
-  const scenes = group_scenes(lines).map((g) =>
-    g.items.map((i) => {
+  const scenes = group_scenes(lines).map((g) => ({
+    ...(g.scene?.scene_id ? { scene_id: g.scene.scene_id } : {}),
+    ...(g.scene?.pov ? { pov: g.scene.pov } : {}),
+    mode: scene_mode(g.scene ?? undefined),
+    visible_in: scene_visible_in(g.scene ?? undefined),
+    lines: g.items.map((i) => {
       const line = lines[i];
       const content = (lang === "en" ? line.text_en : line.text) ?? "";
       if (line.is_context) return { type: "context", content };
@@ -104,7 +137,7 @@ export function build_script_json(
         content,
       };
     }),
-  );
+  }));
   return { name: lang === "en" ? title_en : title, characters: characters.map((c) => c.name), scenes };
 }
 
@@ -257,7 +290,7 @@ export function parse_script_json(text: string, ctx: ParseContext): ParseScriptJ
       fail(`JSON inválido: ${e?.message ?? "error de sintaxis"}`);
     }
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) fail("La raíz debe ser un objeto { ... }");
-    if (!Array.isArray(raw.scenes)) fail('Falta "scenes" (una lista de escenas, cada una una lista de líneas)');
+    if (!Array.isArray(raw.scenes)) fail('Falta "scenes" (una lista de escenas: { "visible_in": [...], "lines": [...] })');
 
     const title = raw.name ?? "";
     if (typeof title !== "string") fail('"name" debe ser texto');
@@ -277,11 +310,49 @@ export function parse_script_json(text: string, ctx: ParseContext): ParseScriptJ
     }
 
     const lines: ScriptLine[] = [];
+    // visible_in se resuelve al final: una escena puede nombrar a un personaje
+    // que recién aparece en una escena posterior.
+    const scene_perspectives: { line: ScriptLine; path: string; requested: string[]; pov?: string }[] = [];
     raw.scenes.forEach((scene: unknown, si: number) => {
-      if (!Array.isArray(scene)) fail(`scenes[${si}] debe ser una lista de líneas`);
-      lines.push({ is_scene: true, scene_number: si + 1, character_index: -1 });
-      (scene as unknown[]).forEach((item: any, ii: number) => {
-        const path = `scenes[${si}][${ii}]`;
+      // Formato anterior: la escena era directamente la lista de líneas.
+      let scene_lines: unknown = scene;
+      let requested: string[] = [PERSPECTIVE_ALL];
+      let scene_id: string | undefined;
+      let pov: string | undefined;
+      let mode: SceneMode = DEFAULT_SCENE_MODE;
+      if (scene && typeof scene === "object" && !Array.isArray(scene)) {
+        const s = scene as { visible_in?: unknown; lines?: unknown; scene_id?: unknown; pov?: unknown; mode?: unknown };
+        scene_lines = s.lines;
+        if (s.scene_id !== undefined && s.scene_id !== null) {
+          if (typeof s.scene_id !== "string") fail(`scenes[${si}].scene_id debe ser texto`);
+          scene_id = s.scene_id.trim() || undefined;
+        }
+        if (s.pov !== undefined && s.pov !== null) {
+          if (typeof s.pov !== "string") fail(`scenes[${si}].pov debe ser el nombre de un personaje`);
+          pov = s.pov.trim() || undefined;
+        }
+        if (s.mode !== undefined && s.mode !== null) {
+          if (typeof s.mode !== "string" || !(SCENE_MODES as readonly string[]).includes(s.mode)) {
+            fail(`scenes[${si}].mode debe ser ${SCENE_MODES.map((m) => `"${m}"`).join(" o ")}`);
+          }
+          mode = s.mode as SceneMode;
+        }
+        if (s.visible_in !== undefined && s.visible_in !== null) {
+          const vi = s.visible_in;
+          if (!Array.isArray(vi)) fail(`scenes[${si}].visible_in debe ser una lista, p. ej. ["all"] o ["Haruto"]`);
+          vi.forEach((p: unknown, pi: number) => {
+            if (typeof p !== "string" || !p.trim()) fail(`scenes[${si}].visible_in[${pi}] debe ser "all" o el nombre de un personaje`);
+          });
+          requested = vi.map((p: string) => p.trim());
+        }
+      }
+      if (!Array.isArray(scene_lines)) fail(`scenes[${si}] debe ser { "visible_in": [...], "lines": [...] }`);
+      const scene_line: ScriptLine = { is_scene: true, scene_number: si + 1, character_index: -1, visible_in: [PERSPECTIVE_ALL], mode };
+      if (scene_id) scene_line.scene_id = scene_id;
+      lines.push(scene_line);
+      scene_perspectives.push({ line: scene_line, path: `scenes[${si}].visible_in`, requested, pov });
+      (scene_lines as unknown[]).forEach((item: any, ii: number) => {
+        const path = `scenes[${si}].lines[${ii}]`;
         if (!item || typeof item !== "object" || Array.isArray(item)) fail(`${path} debe ser un objeto`);
         const type = item.type ?? "dialogue";
         if (!JSON_LINE_TYPES.includes(type)) fail(`${path}: "type" debe ser ${JSON_LINE_TYPES.join(", ")}`);
@@ -301,6 +372,18 @@ export function parse_script_json(text: string, ctx: ParseContext): ParseScriptJ
         lines.push({ character_index: idx, [own]: item.content, [other]: "", line_type: type });
       });
     });
+
+    for (const sp of scene_perspectives) {
+      const known = sp.requested.filter((p) => p.toLowerCase() !== PERSPECTIVE_ALL);
+      const unknown = known.find((p) => !names.some((n) => n.toLowerCase() === p.toLowerCase()));
+      if (unknown !== undefined) fail(`${sp.path}: "${unknown}" no es "all" ni un personaje del guion`);
+      sp.line.visible_in = normalize_visible_in(known, names);
+      if (sp.pov !== undefined) {
+        const match = names.find((n) => n.toLowerCase() === sp.pov!.toLowerCase());
+        if (match === undefined) fail(`${sp.path.replace(/visible_in$/, "pov")}: "${sp.pov}" no es un personaje del guion`);
+        sp.line.pov = match;
+      }
+    }
 
     const data: ScriptJsonData = {
       characters: names,

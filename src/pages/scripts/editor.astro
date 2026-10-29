@@ -1,4 +1,3 @@
-
 ---
 import ScriptEditor from "@components/ScriptEditor/ScriptEditor.svelte";
 import Layout from "@layouts/MainLayout.astro";
@@ -22,6 +21,7 @@ const [detail_res, projects_res] = await Promise.all([
   auth.supabase.rpc("get_user_projects"),
 ]);
 if (detail_res && !detail_res.error && detail_res.data) initialScript = detail_res.data;
+if (detail_res?.error) console.error("[editor] get_script_detail:", detail_res.error);
 const initialProjects = projects_res.data ?? [];
 
 // "+ Script" desde un proyecto de la lista llega con ?project=<id>. Solo se

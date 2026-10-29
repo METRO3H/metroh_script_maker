@@ -143,6 +143,9 @@
   .save-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; white-space: nowrap; visibility: hidden; }
   .save-label-icon { gap: 5px; }
   .save-label-active { visibility: visible; }
+  /* El texto "Guardando" siempre está en el DOM (solo oculto): sin esto su ícono giraba sin parar,
+     y una animación en marcha mantiene al navegador repintando a 60 fps aunque no pase nada. */
+  .save-label:not(.save-label-active) :global(.spin) { animation-play-state: paused; }
   .save-btn::before { content: "Error al guardar"; display: block; visibility: hidden; font-size: 10px; font-family: var(--font-mono); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; pointer-events: none; }
   .save-btn-idle { background: var(--accent); color: #fff; border-color: var(--accent); }
   .save-btn-idle:hover { background: var(--accent-hover); border-color: var(--accent-hover); box-shadow: 0 0 0 3px var(--accent-muted); }

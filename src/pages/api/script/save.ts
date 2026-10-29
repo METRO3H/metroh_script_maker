@@ -1,4 +1,3 @@
-
 // src/pages/api/script/save.ts
 import type { APIRoute } from "astro";
 import { z } from "zod";
@@ -23,9 +22,35 @@ const SaveScriptSchema = z.object({
             content: z.string().min(1).optional(),
             content_en: z.string().min(1).optional(),
             scene_number: z.number().int().positive().optional(),
+            // Solo escenas: "all" (solo en la vista de todas las perspectivas)
+            // y/o nombres de personaje (también en la perspectiva de cada uno).
+            visible_in: z.array(z.string().min(1).max(200)).min(1).max(200).optional(),
+            // Solo escenas: id propio, personaje del punto de vista y modo.
+            scene_id: z.string().min(1).max(100).optional(),
+            pov: z.string().min(1).max(200).optional(),
+            mode: z.enum(["render", "static"]).optional(),
          }),
       )
       .min(1, "El script no puede estar vacío"),
+}).superRefine((body, ctx) => {
+   body.lines.forEach((line, i) => {
+      if (line.line_type !== "scene") {
+         for (const key of ["visible_in", "scene_id", "pov", "mode"] as const) {
+            if (line[key] !== undefined) {
+               ctx.addIssue({ code: "custom", message: `${key} solo aplica a escenas`, path: ["lines", i, key] });
+            }
+         }
+         return;
+      }
+      if (line.pov !== undefined && !body.characters.includes(line.pov)) {
+         ctx.addIssue({ code: "custom", message: `pov: "${line.pov}" no es un personaje del script`, path: ["lines", i, "pov"] });
+      }
+      if (!line.visible_in) return;
+      const unknown = line.visible_in.find((p) => p !== "all" && !body.characters.includes(p));
+      if (unknown !== undefined) {
+         ctx.addIssue({ code: "custom", message: `visible_in: "${unknown}" no es "all" ni un personaje del script`, path: ["lines", i, "visible_in"] });
+      }
+   });
 });
 
 export const POST: APIRoute = async ({ request, cookies }) => {

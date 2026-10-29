@@ -1,9 +1,7 @@
-
-
 // src/lib/script.store.svelte.ts
 import { tick } from "svelte";
-import type { Character, Lang, Project, ScriptLine } from "@types/script";
-import { export_txt, export_json, type ScriptJsonData } from "@lib/script.utils";
+import { PERSPECTIVE_ALL, SCENE_MODES, DEFAULT_SCENE_MODE, type Character, type Lang, type Project, type SceneMode, type ScriptLine } from "@types/script";
+import { export_txt, export_json, normalize_visible_in, scene_visible_in, scene_mode, type ScriptJsonData } from "@lib/script.utils";
 import type { Suggestion } from "@lib/suggest/suggest.engine";
 import { apply_word } from "@lib/suggest/suggest.text";
 import { create_suggest_client, create_suggestion_feed, type SuggestionResult } from "@lib/suggest/suggest.client";
@@ -16,7 +14,17 @@ function init_state(script: any) {
   const chars: Character[] = (script.characters ?? []).map((c: any, i: number) => ({ name: c.name, id: i + 1 }));
   const char_index = Object.fromEntries(chars.map((c, i) => [c.name, i]));
   const lines: ScriptLine[] = (script.lines ?? []).map((l: any) => {
-    if (l.line_type === "scene") return { is_scene: true, scene_number: l.scene_number } as ScriptLine;
+    if (l.line_type === "scene") {
+      const names = chars.map((c) => c.name);
+      const scene: ScriptLine = {
+        is_scene: true, scene_number: l.scene_number, character_index: -1,
+        visible_in: normalize_visible_in(l.visible_in, names),
+        mode: (SCENE_MODES as readonly string[]).includes(l.mode) ? l.mode : DEFAULT_SCENE_MODE,
+      };
+      if (l.scene_id) scene.scene_id = l.scene_id;
+      if (l.pov && names.includes(l.pov)) scene.pov = l.pov;
+      return scene;
+    }
     if (l.line_type === "context") return { is_context: true, character_index: -1, text: l.content ?? "", text_en: l.content_en ?? "" } as ScriptLine;
     return { character_index: char_index[l.character_name] ?? 0, text: l.content ?? "", text_en: l.content_en ?? "", line_type: l.line_type ?? "dialogue" } as ScriptLine;
   });
@@ -81,6 +89,8 @@ export function create_script_store(
       full_script.map((l) => [
         l.is_scene ? 1 : 0, l.is_context ? 1 : 0, l.line_type ?? "",
         l.character_index, l.text ?? "", l.text_en ?? "", l.scene_number ?? 0,
+        l.is_scene ? scene_visible_in(l).join("\u0000") : "",
+        l.is_scene ? [l.scene_id ?? "", l.pov ?? "", scene_mode(l)] : "",
       ]),
     ]);
   }
@@ -275,7 +285,7 @@ export function create_script_store(
   function handle_onboarding_done({ title, characters: chars }: { title: string; characters: string[] }) {
     script_title = title;
     characters = chars.map((name, i) => ({ name, id: i + 1 }));
-    set_script([{ is_scene: true, scene_number: 1, character_index: -1 }]);
+    set_script([{ is_scene: true, scene_number: 1, character_index: -1, visible_in: [PERSPECTIVE_ALL], mode: DEFAULT_SCENE_MODE }]);
     show_onboarding = false;
   }
 
@@ -292,8 +302,70 @@ export function create_script_store(
     const at_end = at_index >= full_script.length;
     const n = full_script.slice(0, at_index).filter((l) => l.is_scene).length + 1;
     const after = full_script.slice(at_index).map((l) => (l.is_scene ? { ...l, scene_number: (l.scene_number ?? 0) + 1 } : l));
-    set_script([...full_script.slice(0, at_index), { is_scene: true, scene_number: n, character_index: -1 }, ...after]);
+    set_script([...full_script.slice(0, at_index), { is_scene: true, scene_number: n, character_index: -1, visible_in: [PERSPECTIVE_ALL], mode: DEFAULT_SCENE_MODE }, ...after]);
     if (at_end) scroll_to_bottom();
+  }
+
+  // ── Perspectivas de una escena (visible_in) ──────────────────
+  // ["all"] = la escena solo se ve al elegir "ver todas las perspectivas".
+  // Con nombres de personaje, se ve además en la perspectiva de cada uno.
+  // Se guardan los nombres (como el resto del guion al guardar/exportar), así
+  // que renombrar o borrar un personaje las mantiene al día (ver más abajo).
+  function set_scene_visibility(index: number, names: string[]) {
+    const line = full_script[index];
+    if (!line?.is_scene) return;
+    const next = normalize_visible_in(names, characters.map((c) => c.name));
+    const prev = scene_visible_in(line);
+    if (next.length === prev.length && next.every((n, i) => n === prev[i])) return;
+    set_script(full_script.map((l, i) => (i === index ? { ...l, visible_in: next } : l)));
+  }
+
+  /** Marca/desmarca la perspectiva de un personaje en la escena `index`. */
+  function toggle_scene_perspective(index: number, name: string) {
+    const current = scene_visible_in(full_script[index]).filter((n) => n !== PERSPECTIVE_ALL);
+    set_scene_visibility(index, current.includes(name) ? current.filter((n) => n !== name) : [...current, name]);
+  }
+
+  // ── Datos de la escena: scene_id, pov y mode ─────────────────
+  // scene_id es una etiqueta propia (no cambia al insertar o borrar escenas);
+  // pov es el nombre de un personaje; mode es "render" o "static".
+  // Un valor vacío (o un pov que no es personaje) quita el campo.
+  function set_scene_meta(index: number, patch: { scene_id?: string; pov?: string | null; mode?: SceneMode }) {
+    const line = full_script[index];
+    if (!line?.is_scene) return;
+    const next: ScriptLine = { ...line };
+    if (patch.scene_id !== undefined) {
+      const id = patch.scene_id.trim();
+      if (id) next.scene_id = id; else delete next.scene_id;
+    }
+    if (patch.pov !== undefined) {
+      if (patch.pov && characters.some((c) => c.name === patch.pov)) next.pov = patch.pov; else delete next.pov;
+    }
+    if (patch.mode !== undefined && (SCENE_MODES as readonly string[]).includes(patch.mode)) next.mode = patch.mode;
+    if (next.scene_id === line.scene_id && next.pov === line.pov && scene_mode(next) === scene_mode(line)) return;
+    set_script(full_script.map((l, i) => (i === index ? next : l)));
+  }
+
+  // Un personaje se renombró o se borró: sus escenas (perspectivas y pov)
+  // siguen apuntando a él.
+  function remap_scene_perspectives(map: (name: string) => string | null) {
+    const touches = (l: ScriptLine) =>
+      !!l.is_scene && (!!l.pov || scene_visible_in(l).some((n) => n !== PERSPECTIVE_ALL));
+    if (!full_script.some(touches)) return;
+    set_script(full_script.map((l) => {
+      if (!l.is_scene || !touches(l)) return l;
+      const next: ScriptLine = { ...l };
+      const cur = scene_visible_in(l);
+      if (!cur.every((n) => n === PERSPECTIVE_ALL)) {
+        const mapped = cur.map((n) => map(n)).filter((n): n is string => n !== null);
+        next.visible_in = mapped.length ? mapped : [PERSPECTIVE_ALL];
+      }
+      if (l.pov) {
+        const pov = map(l.pov);
+        if (pov) next.pov = pov; else delete next.pov;
+      }
+      return next;
+    }));
   }
 
   // Línea vacía en `at_index` (queda antes de la que estaba ahí), con el
@@ -346,6 +418,7 @@ export function create_script_store(
   }
 
   function handle_delete_character({ index, mode }: { index: number; mode: string }) {
+    const removed_name = characters[index]?.name;
     if (mode === "remove_lines") {
       set_script(full_script.filter((l) => l.is_scene || l.character_index !== index));
     } else {
@@ -359,6 +432,9 @@ export function create_script_store(
     const next_chars = characters.filter((_, i) => i !== index);
     set_script(full_script.map((l) => l.is_scene ? l : { ...l, character_index: l.character_index > index ? l.character_index - 1 : l.character_index }));
     characters = next_chars;
+    // Su perspectiva desaparece de las escenas (si era la única, la escena
+    // vuelve a "solo vista completa" en vez de quedar sin ninguna).
+    if (removed_name !== undefined) remap_scene_perspectives((n) => (n === removed_name ? null : n));
     // Igual que con las líneas: si el personaje activo era el borrado, resetear;
     // si estaba después en la lista, correrlo un lugar para que siga apuntando
     // al mismo personaje (antes esto solo se corregía si quedaba fuera de rango).
@@ -606,7 +682,13 @@ export function create_script_store(
             project_id,
             characters: characters.map((c) => c.name),
             lines: to_save.map((line, i) => {
-              if (line.is_scene) return { line_number: i + 1, line_type: "scene", scene_number: line.scene_number };
+              if (line.is_scene) return {
+                line_number: i + 1, line_type: "scene", scene_number: line.scene_number,
+                visible_in: normalize_visible_in(line.visible_in, characters.map((c) => c.name)),
+                scene_id: line.scene_id?.trim() || undefined,
+                pov: line.pov && characters.some((c) => c.name === line.pov) ? line.pov : undefined,
+                mode: scene_mode(line),
+              };
               const content = (line.text ?? "").trim() || undefined;
               const content_en = (line.text_en ?? "").trim() || undefined;
               if (line.is_context) return { line_number: i + 1, line_type: "context", content, content_en };
@@ -668,7 +750,16 @@ export function create_script_store(
     get translated_count()     { return translated_count; },
     get missing_count()        { return missing_count; },
     get characters()           { return characters; },
-    set characters(v)          { characters = v; },
+    set characters(v) {
+      // Renombrar un personaje (mismo id, otro nombre): sus escenas lo siguen.
+      const renames = new Map<string, string>();
+      for (const c of v) {
+        const before = characters.find((o) => o.id === c.id);
+        if (before && before.name !== c.name) renames.set(before.name, c.name);
+      }
+      characters = v;
+      if (renames.size) remap_scene_perspectives((n) => renames.get(n) ?? n);
+    },
     get full_script()          { return full_script; },
     get current_input()        { return current_input; },
     set current_input(v)       { current_input = handle_input_change(v); },
@@ -699,6 +790,7 @@ export function create_script_store(
     set_lang, focus_first_missing,
     set_project, create_project,
     insert_scene, insert_line, move_line, delete_scene, scroll_to_scene, scene_element,
+    set_scene_visibility, toggle_scene_perspective, set_scene_meta,
     handle_delete_character,
     save_input, update_line, delete_line,
     enter_select_mode, exit_select_mode, toggle_select,
@@ -709,7 +801,3 @@ export function create_script_store(
     do_export_txt, do_export_json,
   };
 }
-
-
-
-

@@ -28,3 +28,4 @@ pnpm-debug.log*
 # solo .txt sueltos en la raíz (los diccionarios de public/words/ SÍ se versionan)
 /*.txt
 
+exports/

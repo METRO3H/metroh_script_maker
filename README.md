@@ -1,5 +1,6 @@
 
 
+
 # Metroh Script Maker
 
 ![Astro](https://img.shields.io/badge/Astro-6-BC52EE?logo=astro&logoColor=white)
@@ -19,6 +20,7 @@ Metroh Script Maker combines a focused script-writing interface with account-bas
 ### Script editor
 - Create scripts through a guided two-step onboarding flow.
 - Organize scripts into numbered scenes.
+- Choose, per scene, which **perspectives** can see it (`visible_in`): only the "see all perspectives" view, or the perspective of one or more characters (see [Scene perspectives](#scene-perspectives)).
 - Add, rename, and remove characters.
 - Write different types of lines:
   - Dialogue
@@ -68,7 +70,41 @@ Scripts can be exported from the editor as:
 - `.txt`
 - `.json`
 
-The JSON export preserves the script structure, characters, scenes, line types, and script ID.
+The JSON export preserves the script structure, characters, scenes (with their perspectives), line types, and script ID.
+
+### Scene perspectives
+
+Many visual novels let the player choose *whose point of view* to read: a single character's (to keep the mystery) or "see all perspectives" (to know everything that happens). Every scene therefore carries a `visible_in` list. It is set from the button next to the scene name in the editor, or directly in the JSON view:
+
+```json
+{
+  "name": "My story",
+  "characters": ["Haruto", "Ana"],
+  "scenes": [
+    {
+      "visible_in": ["Haruto"],
+      "lines": [{ "type": "dialogue", "character": "Haruto", "content": "…" }]
+    },
+    {
+      "visible_in": ["all"],
+      "lines": [{ "type": "narration", "character": "Ana", "content": "…" }]
+    }
+  ]
+}
+```
+
+| `visible_in` | The scene is shown when the player chooses… |
+| --- | --- |
+| `["all"]` (default) | only **"see all perspectives"** |
+| `["Haruto"]` | Haruto's perspective (and "see all perspectives") |
+| `["Haruto", "Ana"]` | the perspective of either one (and "see all perspectives") |
+
+Rule for the game: **"see all perspectives" shows every scene; a character's perspective shows only the scenes whose `visible_in` names that character.** A scene that every perspective should see simply lists all the characters (the **All characters** button in the editor does that).
+
+- `"all"` is reserved; the other values must be names from `characters` (case-insensitive when typing, normalised on apply). An unknown name is reported as a JSON error. An empty list means `["all"]`.
+- Renaming a character updates the scenes that name it; deleting one removes it from them (a scene left with no perspective goes back to `["all"]`).
+- The old JSON shape (`"scenes": [[ …lines… ]]`) is still accepted in the JSON view; those scenes become `["all"]`.
+- It is part of the shared structure, so Spanish and English JSON carry the same `visible_in`.
 
 ### Themes
 - Light and dark themes are supported.
@@ -144,6 +180,9 @@ If you already have data, do **not** run `init.sql` (it drops everything). Run t
 ```text
 src/supabase/migration_001_projects_and_english.sql   (projects + English version)
 src/supabase/migration_002_custom_words.sql           (custom suggestion words: table custom_words)
+src/supabase/migration_003_character_order.sql        (character order)
+src/supabase/migration_004_performance.sql            (indexes and faster queries)
+src/supabase/migration_005_scene_visibility.sql       (scene perspectives: column script_lines.visible_in)
 ```
 
 The schema creates:
@@ -272,6 +311,8 @@ scene
 ```
 
 Scenes and context lines do not require a character.
+
+`script_lines.visible_in` (`TEXT[]`, only used when `line_type = 'scene'`) stores the scene's perspectives: `{all}` or character names. It is `NULL` for any other line type.
 
 Saving a script uses a PostgreSQL function (`upsert_script`) so the complete script structure can be written consistently in one operation.
 
@@ -407,3 +448,5 @@ The editor intentionally keeps the domain logic separate from the UI components:
 
 
 
+
+

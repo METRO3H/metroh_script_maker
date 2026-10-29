@@ -1,5 +1,6 @@
 
 
+
 -- ═════════════════════════════════════════════════════════════
 -- LIMPIEZA COMPLETA
 -- Elimina las tablas de la aplicación y sus dependencias.
@@ -72,6 +73,9 @@ CREATE TABLE characters (
 -- character_id: NULL para context y scene
 -- content:      NULL para scene
 -- scene_number: solo para line_type = 'scene'
+-- visible_in:   solo para line_type = 'scene' (ver migration_005): perspectivas
+--               en las que se ve la escena. {all} = solo en "ver todas las
+--               perspectivas"; nombres de personaje = también en la de cada uno.
 
 CREATE TABLE script_lines (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -90,6 +94,7 @@ CREATE TABLE script_lines (
                  ),
     content      TEXT,
     scene_number INTEGER,
+    visible_in   TEXT[],
     created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -646,7 +651,8 @@ BEGIN
         line_type,
         content,
         content_en,
-        scene_number
+        scene_number,
+        visible_in
     )
     SELECT
         v_script_id,
@@ -658,6 +664,21 @@ BEGIN
         CASE
             WHEN l.value->>'line_type' = 'scene'
             THEN (l.value->>'scene_number')::INTEGER
+            ELSE NULL
+        END,
+        -- Solo escenas. Si falta o viene vacío, la escena queda en {all}.
+        CASE
+            WHEN l.value->>'line_type' = 'scene'
+            THEN COALESCE(
+                NULLIF(
+                    CASE
+                        WHEN jsonb_typeof(l.value->'visible_in') = 'array'
+                        THEN ARRAY(SELECT jsonb_array_elements_text(l.value->'visible_in'))
+                    END,
+                    '{}'::TEXT[]
+                ),
+                ARRAY['all']::TEXT[]
+            )
             ELSE NULL
         END
     FROM jsonb_array_elements(p_lines) WITH ORDINALITY AS l(value, ord)
@@ -762,7 +783,8 @@ BEGIN
                     'character_name', c.name,
                     'content', sl.content,
                     'content_en', sl.content_en,
-                    'scene_number', sl.scene_number
+                    'scene_number', sl.scene_number,
+                    'visible_in', sl.visible_in
                 )
                 ORDER BY sl.line_number
             )
@@ -1029,3 +1051,5 @@ CREATE INDEX IF NOT EXISTS idx_script_lines_script_line
 -- Postgres busca sus líneas por esta columna.
 CREATE INDEX IF NOT EXISTS idx_script_lines_character
     ON script_lines (character_id);
+
+
